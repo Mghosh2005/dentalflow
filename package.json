@@ -1,0 +1,14 @@
+{
+  "name": "dentalflow",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "seed": "cd backend && node src/seed.js",
+    "start": "cd backend && node src/server.js",
+    "dev:backend": "cd backend && node src/server.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "render:build": "npm run install:all && npm run build && npm run seed"
+  }
+}
