@@ -48,7 +48,7 @@ export default function AiCallSummary() {
           <div className="flex items-center gap-2 mb-1">
             <h1 className="font-display text-3xl font-semibold text-ink-900">AI Call Summary</h1>
             <span className="text-xs bg-teal-100 text-teal-700 font-semibold px-2.5 py-0.5 rounded-full border border-teal-200">
-              Greeta Studio
+              Neerja Studio
             </span>
           </div>
           <p className="text-ink-900/50 text-sm">
@@ -95,7 +95,7 @@ export default function AiCallSummary() {
                   Live Voice Sandbox
                 </h2>
                 <p className="text-xs text-ink-900/50 mt-0.5">
-                  Speak directly with Greeta via microphone or type test messages.
+                  Speak directly with Neerja via microphone or type test messages.
                 </p>
               </div>
               <span className="text-[11px] bg-slate-100 text-slate-600 font-mono px-2 py-0.5 rounded">
@@ -119,7 +119,7 @@ export default function AiCallSummary() {
                 <h3 className="font-semibold text-sm">Testing Scenarios</h3>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed mb-4">
-                Greeta handles live patient conversations end-to-end. Try speaking or typing these real-world scenarios:
+                Neerja handles live patient conversations end-to-end. Try speaking or typing these real-world scenarios:
               </p>
 
               <div className="space-y-3 text-xs">
@@ -344,7 +344,7 @@ export default function AiCallSummary() {
                                   }`}
                                 >
                                   <p className="text-[10px] opacity-70 mb-0.5 font-medium">
-                                    {turn.role === 'ai' || turn.role === 'assistant' ? 'Greeta (AI Receptionist)' : 'Caller'}
+                                    {turn.role === 'ai' || turn.role === 'assistant' ? 'Neerja (AI Receptionist)' : 'Caller'}
                                   </p>
                                   <p>{turn.text}</p>
                                 </div>
@@ -365,7 +365,7 @@ export default function AiCallSummary() {
               <Bot size={36} className="text-slate-400 mx-auto mb-2" />
               <p className="text-sm font-semibold text-ink-900">No call summaries yet</p>
               <p className="text-xs text-ink-900/50 mt-1 max-w-sm mx-auto">
-                Switch to the <strong>Test Your Agent</strong> tab and start a call with Greeta to generate your first live call summary!
+                Switch to the <strong>Test Your Agent</strong> tab and start a call with Neerja to generate your first live call summary!
               </p>
             </div>
           )}

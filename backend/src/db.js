@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS call_logs (
 CREATE TABLE IF NOT EXISTS ai_settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   practice_id INTEGER REFERENCES practices(id),
-  greeting_script TEXT DEFAULT 'Thank you for calling {practice_name}. This is Greeta, your AI receptionist. How can I help you today?',
+  greeting_script TEXT DEFAULT 'Thank you for calling {practice_name}. This is Neerja, your AI receptionist. How can I help you today?',
   voice_id TEXT DEFAULT 'en-IN-NeerjaExpressiveNeural',
   voice_name TEXT DEFAULT 'Neerja (Expressive Female)',
   language TEXT DEFAULT 'en-IN',

@@ -564,7 +564,7 @@ function parseSpokenEmail(text) {
   return match ? match[0] : null;
 }
 
-// --- Mock AI Conversation Logic (Voice Receptionist "Greeta") ---
+// --- Mock AI Conversation Logic (Voice Receptionist "Neerja") ---
 app.post('/api/simulate-ai-chat', (req, res) => {
   const { message = '', history = [], context = {}, session_id = 'session_' + Date.now() } = req.body;
   const lower = message.toLowerCase().trim();
@@ -772,7 +772,7 @@ app.post('/api/simulate-ai-chat', (req, res) => {
           start_time: ctx.selected_time,
           reason: ctx.reason || 'Check-up',
           fee: 180,
-          call_summary: `AI receptionist Greeta booked check-up with ${ctx.selected_practitioner_name} for ${ctx.caller_name || 'Peter Strain'}`,
+          call_summary: `AI receptionist Neerja booked check-up with ${ctx.selected_practitioner_name} for ${ctx.caller_name || 'Peter Strain'}`,
           is_after_hours: 1
         }, PRACTICE_ID);
 
@@ -821,7 +821,7 @@ app.post('/api/simulate-ai-chat', (req, res) => {
   // 7. General Fallback
   else if (!reply) {
     if (history.length === 0) {
-      reply = "Hi! You've reached DentalFlow Downtown. I'm Greeta — the AI receptionist for the dental team, and this call is recorded. Just ask me anything and I'll get it sorted. How can I help you today?";
+      reply = "Hi! You've reached DentalFlow Downtown. I'm Neerja — the AI receptionist for the dental team, and this call is recorded. Just ask me anything and I'll get it sorted. How can I help you today?";
     } else {
       reply = "I'm right here to help! Whether you'd like to book an appointment, inquire about treatment fees like Invisalign or whitening, or check our hours, just let me know.";
     }
@@ -839,23 +839,34 @@ app.post('/api/simulate-ai-chat', (req, res) => {
 });
 
 
-// --- Whisper In-Memory Worker for Near-Instant STT ---
+// --- Whisper In-Memory Worker & Speech-to-Text ---
 let whisperWorker = null;
+let whisperWorkerCrashes = 0;
+let whisperAvailable = false;
 const pendingTranscriptions = [];
 
+const pythonCmd = process.env.PYTHON_PATH || (process.platform === 'win32' ? 'python' : 'python3');
+
 function startWhisperWorker() {
+  if (whisperWorkerCrashes >= 2) {
+    console.log('[Whisper Worker] PyTorch/Whisper unavailable in this environment. Local Whisper worker disabled.');
+    return;
+  }
+
   const workerScript = path.join(__dirname, 'whisper_worker.py');
   try {
-    whisperWorker = spawn('python', [workerScript]);
+    whisperWorker = spawn(pythonCmd, [workerScript]);
 
     const rl = readline.createInterface({ input: whisperWorker.stdout });
     rl.on('line', (line) => {
       const trimmed = line.trim();
       if (trimmed === 'PRELOADING_WHISPER') {
-        console.log('[Whisper AI] Preloading small model into RAM...');
+        console.log('[Whisper AI] Preloading model into RAM...');
         return;
       }
       if (trimmed === 'WHISPER_READY') {
+        whisperAvailable = true;
+        whisperWorkerCrashes = 0;
         console.log('[Whisper AI] In-memory worker ready! Ultra-fast STT enabled.');
         return;
       }
@@ -872,32 +883,102 @@ function startWhisperWorker() {
 
     whisperWorker.stderr.on('data', (d) => {
       const str = d.toString();
+      if (str.includes('No module named') || str.includes('ModuleNotFoundError')) {
+        whisperWorkerCrashes = 99; // immediately disable to prevent crash loop
+      }
       if (!str.includes('FP16') && !str.includes('UserWarning')) {
         console.warn('[Whisper Worker]', str.trim());
       }
     });
 
-    whisperWorker.on('exit', () => {
-      console.warn('[Whisper Worker] Exited, restarting in 1s...');
-      setTimeout(startWhisperWorker, 1000);
+    whisperWorker.on('exit', (code) => {
+      whisperWorker = null;
+      if (code !== 0) {
+        whisperWorkerCrashes++;
+      }
+      if (whisperWorkerCrashes < 2) {
+        console.warn('[Whisper Worker] Exited, retrying in 2s...');
+        setTimeout(startWhisperWorker, 2000);
+      } else {
+        console.log('[Whisper AI] Worker disabled (torch/whisper not available in this environment). Local/browser fallback active.');
+      }
     });
   } catch (err) {
-    console.error('Failed to spawn whisper worker:', err);
+    whisperWorkerCrashes = 99;
+    console.warn('[Whisper Worker] Failed to spawn:', err.message);
   }
 }
 
 // Start worker at boot
 startWhisperWorker();
 
-function transcribeAudioFile(filePath) {
-  return new Promise((resolve, reject) => {
-    if (whisperWorker && whisperWorker.stdin && whisperWorker.stdin.writable) {
+async function transcribeAudioFile(filePath) {
+  // Option 1: In-memory local worker (CUDA or CPU)
+  if (whisperWorker && whisperWorker.stdin && whisperWorker.stdin.writable && whisperAvailable) {
+    return new Promise((resolve, reject) => {
       pendingTranscriptions.push({ resolve, reject });
       whisperWorker.stdin.write(JSON.stringify({ path: filePath }) + '\n');
-    } else {
-      // Fallback to standalone script
-      const scriptPath = path.join(__dirname, 'transcribe.py');
-      execFile('python', [scriptPath, filePath], { maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+    });
+  }
+
+  // Option 2: Cloud Groq Whisper API (Ultra-fast ~150ms transcription if key provided)
+  if (process.env.GROQ_API_KEY) {
+    try {
+      console.log('[Transcribe] Using Groq Cloud Whisper API...');
+      const fileBuffer = await fs.promises.readFile(filePath);
+      const blob = new Blob([fileBuffer], { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('file', blob, 'audio.webm');
+      formData.append('model', 'whisper-large-v3-turbo');
+      formData.append('language', 'en');
+      formData.append('prompt', 'Reyan Das, Helen Styles, Dr. Lindsay Wren, dental clinic appointment');
+
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+        return { text: json.text || '' };
+      }
+    } catch (e) {
+      console.warn('[Transcribe] Groq API call failed:', e.message);
+    }
+  }
+
+  // Option 3: Cloud OpenAI Whisper API
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      console.log('[Transcribe] Using OpenAI Cloud Whisper API...');
+      const fileBuffer = await fs.promises.readFile(filePath);
+      const blob = new Blob([fileBuffer], { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('file', blob, 'audio.webm');
+      formData.append('model', 'whisper-1');
+      formData.append('language', 'en');
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+        return { text: json.text || '' };
+      }
+    } catch (e) {
+      console.warn('[Transcribe] OpenAI API call failed:', e.message);
+    }
+  }
+
+  // Option 4: Standalone transcribe.py if torch is available
+  if (whisperWorkerCrashes < 2) {
+    const scriptPath = path.join(__dirname, 'transcribe.py');
+    return new Promise((resolve, reject) => {
+      execFile(pythonCmd, [scriptPath, filePath], { maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
         if (error) return reject(error);
         try {
           resolve(JSON.parse(stdout.trim()));
@@ -905,32 +986,28 @@ function transcribeAudioFile(filePath) {
           resolve({ text: stdout.trim() });
         }
       });
-    }
-  });
+    });
+  }
+
+  // Option 5: No backend STT installed (e.g. Render free tier without torch)
+  return { 
+    error: 'NO_BACKEND_STT', 
+    message: 'Local PyTorch Whisper is not installed on this server. Browser SpeechRecognition will be used.' 
+  };
 }
 
 // --- Text-to-Speech Endpoint (Microsoft Edge Neural Indian Voices) ---
 app.post('/api/tts', async (req, res) => {
   try {
-    const { text, voice_id } = req.body;
+    const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'text is required' });
 
     const cleanText = text.replace(/[*_#`~]/g, '').trim();
 
-    // Determine voice: Check request body or DB settings, defaulting to Indian Female Neerja
-    let voice = voice_id;
-    if (!voice || voice === 'greeta_default' || voice === 'anjali' || voice === 'default' || voice === 'neerja') {
-      try {
-        const settings = db.prepare('SELECT voice_id FROM ai_settings WHERE practice_id = ?').get(PRACTICE_ID);
-        voice = (settings && settings.voice_id && (settings.voice_id.includes('-IN-') || settings.voice_id.startsWith('en-IN')))
-          ? settings.voice_id
-          : 'en-IN-NeerjaExpressiveNeural';
-      } catch (e) {
-        voice = 'en-IN-NeerjaExpressiveNeural';
-      }
-    }
+    // Lock to ONLY ONE VOICE: Neerja Indian Female Neural Voice
+    const voice = 'en-IN-NeerjaExpressiveNeural';
 
-    console.log(`[TTS] Synthesizing Indian Neural Voice (${voice}) for: "${cleanText.slice(0, 60)}..."`);
+    console.log(`[TTS] Synthesizing Neerja Neural Voice for: "${cleanText.slice(0, 60)}..."`);
 
     res.set({
       'Content-Type': 'audio/mpeg',
@@ -939,7 +1016,7 @@ app.post('/api/tts', async (req, res) => {
     });
 
     const scriptPath = path.join(__dirname, 'edge_tts_service.py');
-    const python = spawn('python', [scriptPath, cleanText, voice]);
+    const python = spawn(pythonCmd, [scriptPath, cleanText, voice]);
 
     python.stdout.pipe(res);
 
@@ -949,9 +1026,9 @@ app.post('/api/tts', async (req, res) => {
     });
 
     python.on('error', (err) => {
-      console.error('[EdgeTTS Spawn Error]', err);
+      console.error('[EdgeTTS Spawn Error]', err.message);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to spawn TTS service' });
+        res.status(500).json({ error: 'Failed to spawn TTS service: ' + err.message });
       }
     });
 
@@ -1005,7 +1082,10 @@ app.post('/api/transcribe', async (req, res) => {
       console.log('[Transcribe] Whisper result:', JSON.stringify(result));
 
       if (result.error) {
-        console.error('[Transcribe] Whisper returned error:', result.error);
+        console.error('[Transcribe] Transcription result notice:', result.error);
+        if (result.error === 'NO_BACKEND_STT') {
+          return res.json({ error: 'NO_BACKEND_STT', text: '', message: result.message });
+        }
         return res.status(500).json({ error: result.error, text: '' });
       }
 

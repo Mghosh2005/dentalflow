@@ -51,6 +51,8 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
   const speechDetectedRef = useRef(false);
   const autoStopTimerRef = useRef(null);
   const maxRecordingTimerRef = useRef(null);
+  const useBrowserSTTRef = useRef(false);
+  const browserRecognitionRef = useRef(null);
 
   contextRef.current = context;
   messagesRef.current = messages;
@@ -112,6 +114,10 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (autoStopTimerRef.current) { clearTimeout(autoStopTimerRef.current); autoStopTimerRef.current = null; }
     if (maxRecordingTimerRef.current) { clearTimeout(maxRecordingTimerRef.current); maxRecordingTimerRef.current = null; }
+    if (browserRecognitionRef.current) {
+      try { browserRecognitionRef.current.abort(); } catch (e) {}
+      browserRecognitionRef.current = null;
+    }
     speechDetectedRef.current = false;
     isRecordingRef.current = false;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -144,6 +150,65 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     setMicVolume(0);
   };
 
+  // Browser Web Speech API Recognition (Cloud fallback for Render / no-torch environments)
+  const startBrowserSpeechRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setMicError('Speech recognition is not supported in this browser. Please use Chrome or Edge, or type your message below.');
+      return;
+    }
+
+    if (browserRecognitionRef.current) {
+      try { browserRecognitionRef.current.abort(); } catch (e) {}
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-IN'; // Indian English
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        isRecordingRef.current = true;
+        setMicStatusText('🎙️ Listening... speak naturally');
+      };
+
+      recognition.onresult = (event) => {
+        const speechResult = event.results[0]?.[0]?.transcript || '';
+        console.log('[Browser STT] Recognized:', speechResult);
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        if (speechResult.trim()) {
+          setMicStatusText(`✓ Recognized: "${speechResult.trim()}"`);
+          handleUserSpeech(speechResult.trim());
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('[Browser STT] Notice:', event.error);
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setMicError(`Voice notice: ${event.error}. You can also type below.`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+        isRecordingRef.current = false;
+      };
+
+      browserRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (e) {
+      console.warn('[Browser STT] Start exception:', e);
+      setIsRecording(false);
+      isRecordingRef.current = false;
+    }
+  };
+
   const speakTextFallback = (text) => {
     if (!window.speechSynthesis) {
       isAiSpeakingRef.current = false;
@@ -155,19 +220,44 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     const cleanText = text.replace(/[*_#`~]/g, '');
     const utterance = new SpeechSynthesisUtterance(cleanText);
 
-    // Prefer Indian English female voice (Heera / en-IN)
+    // Strictly enforce FEMALE ONLY voices — NEVER select a male voice (e.g. Ravi, David, Mark)
     const voices = window.speechSynthesis.getVoices();
-    const indianFemaleVoice = voices.find(v => 
-      (v.lang === 'en-IN' || v.name.includes('India')) &&
-      (v.name.toLowerCase().includes('heera') || v.name.toLowerCase().includes('female') || !v.name.toLowerCase().includes('ravi'))
-    ) || voices.find(v => v.lang === 'en-IN' || v.name.includes('India'));
+    const isMaleVoice = (v) => {
+      const n = (v.name + ' ' + (v.voiceURI || '')).toLowerCase();
+      return n.includes('ravi') || n.includes('david') || n.includes('mark') || n.includes('george') || 
+             n.includes('male') || n.includes('guy') || n.includes('man') || n.includes('boy') || 
+             n.includes('james') || n.includes('stefan') || n.includes('prabhat') || n.includes('madhur') ||
+             n.includes('daniel') || n.includes('oliver');
+    };
 
-    if (indianFemaleVoice) {
-      utterance.voice = indianFemaleVoice;
+    const isFemaleVoice = (v) => {
+      const n = (v.name + ' ' + (v.voiceURI || '')).toLowerCase();
+      return n.includes('heera') || n.includes('neerja') || n.includes('swara') || n.includes('female') ||
+             n.includes('zira') || n.includes('samantha') || n.includes('victoria') || n.includes('karen') ||
+             n.includes('fiona') || n.includes('hazel') || n.includes('serena') || n.includes('catherine');
+    };
+
+    // Priority 1: Indian English female voice
+    let selectedVoice = voices.find(v => (v.lang === 'en-IN' || v.name.includes('India')) && !isMaleVoice(v) && isFemaleVoice(v));
+    // Priority 2: Any Indian voice not male
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => (v.lang === 'en-IN' || v.name.includes('India')) && !isMaleVoice(v));
+    }
+    // Priority 3: Any English female voice
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => v.lang.startsWith('en') && !isMaleVoice(v) && isFemaleVoice(v));
+    }
+    // Priority 4: Any English voice not male
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => v.lang.startsWith('en') && !isMaleVoice(v));
+    }
+
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
     }
     utterance.lang = 'en-IN';
     utterance.rate = 0.95;
-    utterance.pitch = 1.0;
+    utterance.pitch = 1.15; // Raised pitch ensures a clear, warm female voice tone
     utterance.onend = () => {
       isAiSpeakingRef.current = false;
       setIsAiSpeaking(false);
@@ -348,10 +438,16 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     }
   };
 
-  // Start MediaRecorder (Records actual mic audio bytes)
+  // Start MediaRecorder or Browser SpeechRecognition
   const startRecording = async () => {
     if (!isCallActiveRef.current || isAiSpeakingRef.current) return;
     if (isRecordingRef.current || isTranscribingRef.current) return;
+
+    if (useBrowserSTTRef.current) {
+      console.log('[STT] Browser SpeechRecognition active mode');
+      startBrowserSpeechRecognition();
+      return;
+    }
 
     setMicError(null);
     console.log('[STT] startRecording called');
@@ -369,7 +465,9 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
     const stream = await ensureAudioStream();
     if (!stream) {
-      console.error('[STT] No audio stream available');
+      console.error('[STT] No audio stream available, attempting browser speech recognition');
+      useBrowserSTTRef.current = true;
+      startBrowserSpeechRecognition();
       return;
     }
 
@@ -425,7 +523,9 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         console.error('[STT] MediaRecorder error event:', event.error);
         setIsRecording(false);
         isRecordingRef.current = false;
-        setMicError('Recording error: ' + (event.error?.message || 'Unknown error'));
+        // Fallback to browser recognition
+        useBrowserSTTRef.current = true;
+        startBrowserSpeechRecognition();
       };
 
       mediaRecorderRef.current = recorder;
@@ -444,10 +544,11 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
       }, 7500);
 
     } catch (err) {
-      console.error('[STT] MediaRecorder error:', err);
+      console.error('[STT] MediaRecorder error, falling back to browser recognition:', err);
       setIsRecording(false);
       isRecordingRef.current = false;
-      setMicError('Could not start audio recorder: ' + err.message);
+      useBrowserSTTRef.current = true;
+      startBrowserSpeechRecognition();
     }
   };
 
@@ -457,6 +558,10 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (autoStopTimerRef.current) { clearTimeout(autoStopTimerRef.current); autoStopTimerRef.current = null; }
     if (maxRecordingTimerRef.current) { clearTimeout(maxRecordingTimerRef.current); maxRecordingTimerRef.current = null; }
+
+    if (browserRecognitionRef.current) {
+      try { browserRecognitionRef.current.stop(); } catch (e) {}
+    }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       try {
@@ -478,14 +583,8 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
     try {
       const dataUrl = await blobToBase64(blob);
-      // Strip the data URI prefix to get raw base64 — handles any MIME type including codecs
-      // dataUrl looks like: "data:audio/webm;codecs=opus;base64,AAAA..."
       const base64Audio = dataUrl.split(';base64,').pop();
-      // Determine file extension from blob type
       const format = blob.type.includes('mp4') ? 'mp4' : 'webm';
-
-      console.log('[STT] Base64 audio length:', base64Audio.length, 'chars');
-      console.log('[STT] Sending format:', format);
 
       const res = await api.transcribeAudio({
         audio: base64Audio,
@@ -493,6 +592,16 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
       });
 
       console.log('[STT] Transcription response:', JSON.stringify(res));
+
+      // Handle environments without backend torch (e.g. Render Free)
+      if (res.error === 'NO_BACKEND_STT' || res.error?.includes('torch') || res.error?.includes('No module named') || res.error?.includes('Command failed')) {
+        console.warn('[STT] Backend Whisper unavailable on server, automatically activating browser speech recognition');
+        setIsTranscribing(false);
+        useBrowserSTTRef.current = true;
+        setMicStatusText('🎙️ Switched to Browser Voice Recognition');
+        startBrowserSpeechRecognition();
+        return;
+      }
 
       const transcribedText = res.text ? res.text.trim() : '';
       setIsTranscribing(false);
@@ -514,13 +623,14 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         }
       }
     } catch (err) {
-      console.error('[STT] Whisper transcription failed:', err);
+      console.warn('[STT] Backend transcription failed, switching to browser recognition:', err.message);
       setIsTranscribing(false);
-      setMicError('Whisper transcription failed: ' + err.message + '. You can also type your message.');
+      useBrowserSTTRef.current = true;
+      startBrowserSpeechRecognition();
     }
   };
 
-  // Auto-listen trigger after Greeta finishes speaking — starts recording automatically
+  // Auto-listen trigger after Neerja finishes speaking — starts recording automatically
   const startAutoListening = () => {
     isAiSpeakingRef.current = false;
     setIsAiSpeaking(false);
@@ -548,7 +658,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     // Prompt for mic permission
     await ensureAudioStream();
 
-    let greeting = "Hi, you've reached DentalFlow Downtown. I'm Greeta — the AI receptionist for the dental team, and this call's recorded. Just ask me anything and I'll get it sorted. How can I help?";
+    let greeting = "Hi, you've reached DentalFlow Downtown. I'm Neerja — the AI receptionist for the dental team, and this call's recorded. Just ask me anything and I'll get it sorted. How can I help?";
     try {
       const settings = await api.getAiSettings();
       if (settings?.greeting_script) {
@@ -584,7 +694,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     isCallActiveRef.current = true;
     setCallDuration(0);
 
-    let greeting = "Hi! You're chatting with Greeta, the AI receptionist for DentalFlow Downtown. How can I help you today?";
+    let greeting = "Hi! You're chatting with Neerja, the AI receptionist for DentalFlow Downtown. How can I help you today?";
     try {
       const settings = await api.getAiSettings();
       if (settings?.greeting_script) {
@@ -762,7 +872,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         </div>
         <div className="text-left">
           <p className="text-xs font-semibold tracking-wide">Test AI Agent</p>
-          <p className="text-[10px] text-teal-300/80">Talk with Greeta (ElevenLabs + Whisper)</p>
+          <p className="text-[10px] text-teal-300/80">Talk with Neerja (Neural Voice + STT)</p>
         </div>
       </button>
     );
@@ -781,14 +891,14 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         <div className="flex items-center gap-2.5">
           <div className="relative">
             <div className="w-8 h-8 rounded-full bg-teal-600/30 border border-teal-500/40 flex items-center justify-center text-teal-400 font-semibold text-xs">
-              G
+              N
             </div>
             {isCallActive && (
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-[#1E293B]" />
             )}
           </div>
           <div>
-            <span className="font-semibold text-sm tracking-tight text-slate-100">Greeta</span>
+            <span className="font-semibold text-sm tracking-tight text-slate-100">Neerja</span>
           </div>
         </div>
 
@@ -883,7 +993,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
               <Bot size={26} className="animate-pulse" />
             </div>
             <div className="max-w-xs space-y-1">
-              <h3 className="text-base font-semibold text-white">Test Greeta AI Receptionist</h3>
+              <h3 className="text-base font-semibold text-white">Test Neerja AI Receptionist</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
                 Experience real-time patient interactions. Choose your preferred testing method below:
               </p>
@@ -927,7 +1037,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
             <div className="flex items-end gap-2 max-w-[88%]">
               {msg.role === 'ai' && (
                 <div className="w-6 h-6 rounded-full bg-teal-600/30 border border-teal-500/30 flex items-center justify-center text-teal-300 text-[10px] font-bold shrink-0 mb-1">
-                  G
+                  N
                 </div>
               )}
               <div
@@ -938,7 +1048,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
                 }`}
               >
                 <div className="flex items-center justify-between gap-3 text-[10px] opacity-60 mb-1">
-                  <span className="font-semibold">{msg.role === 'ai' ? 'Greeta' : 'You (Caller)'}</span>
+                  <span className="font-semibold">{msg.role === 'ai' ? 'Neerja' : 'You (Caller)'}</span>
                   <span>{msg.timestamp}</span>
                 </div>
                 <p className="whitespace-pre-wrap">{msg.text}</p>
@@ -1061,7 +1171,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
                   {isAiSpeaking ? (
                     <>
                       <span className="w-2 h-2 rounded-full bg-teal-400 animate-ping" />
-                      <span className="text-teal-300 font-medium">Greeta is speaking...</span>
+                      <span className="text-teal-300 font-medium">Neerja is speaking...</span>
                     </>
                   ) : isRecording ? (
                     <>
@@ -1222,7 +1332,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
                   type="text"
                   value={inputVal}
                   onChange={(e) => setInputVal(e.target.value)}
-                  placeholder="Type your message to Greeta..."
+                  placeholder="Type your message to Neerja..."
                   className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                   autoFocus
                 />

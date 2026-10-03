@@ -52,7 +52,7 @@ export default function AiSettings() {
     <div className="max-w-6xl">
       <div className="mb-6">
         <h1 className="font-display text-3xl font-semibold text-ink-900 mb-1">AI Voice Receptionist</h1>
-        <p className="text-ink-900/50 text-sm">Configure how Greeta handles incoming calls and test your live voice agent.</p>
+        <p className="text-ink-900/50 text-sm">Configure how Neerja handles incoming calls and test your live voice agent.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -87,11 +87,6 @@ export default function AiSettings() {
                 >
                   <option value="en-IN-NeerjaExpressiveNeural">Neerja — Indian English Female (Expressive · Active)</option>
                   <option value="en-IN-NeerjaNeural">Neerja — Indian English Female (Professional)</option>
-                  <option value="hi-IN-SwaraNeural">Swara — Hindi Female</option>
-                  <option value="en-IN-PrabhatNeural">Prabhat — Indian English Male</option>
-                  <option value="hi-IN-MadhurNeural">Madhur — Hindi Male</option>
-                  <option value="anjali">Anjali — ElevenLabs (Paid)</option>
-                  <option value="custom">Custom (Voice Clone)</option>
                 </select>
               </Field>
               <Field label="Operating Language">

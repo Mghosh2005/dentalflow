@@ -9,6 +9,6 @@
     "start": "cd backend && node src/server.js",
     "dev:backend": "cd backend && node src/server.js",
     "dev:frontend": "cd frontend && npm run dev",
-    "render:build": "npm run install:all && npm run build && npm run seed"
+    "render:build": "npm run install:all && npm run build && (pip install -r backend/requirements.txt || pip3 install -r backend/requirements.txt || true) && npm run seed"
   }
 }
