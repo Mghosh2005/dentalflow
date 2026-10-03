@@ -21,9 +21,9 @@ const NAV = [
     section: 'AI tools',
     items: [
       { key: 'ai-settings', label: 'AI Settings', icon: Settings },
+      { key: 'ai-assistant', label: 'AI assistant', icon: Sparkles },
       { key: 'call-summary', label: 'AI call summary', icon: FileText },
       { key: 'voice-notes', label: 'Voice notes', icon: Mic, comingSoon: true },
-      { key: 'ai-assistant', label: 'AI assistant', icon: Sparkles, comingSoon: true },
     ],
   },
   {

@@ -11,10 +11,10 @@ import Analytics from './pages/Analytics';
 import ComingSoon from './pages/ComingSoon';
 import AiSettings from './pages/AiSettings';
 import AiCallSummary from './pages/AiCallSummary';
+import AiAssistant from './pages/AiAssistant';
 
 const TITLES = {
   'voice-notes': 'Voice notes',
-  'ai-assistant': 'AI assistant',
 };
 
 export default function App() {
@@ -37,7 +37,8 @@ export default function App() {
   else if (page === 'practitioners') content = <Practitioners />;
   else if (page === 'analytics') content = <Analytics />;
   else if (page === 'ai-settings') content = <AiSettings />;
-  else if (page === 'call-summary') content = <AiCallSummary />;
+  else if (page === 'call-summary') content = <AiCallSummary onNavigate={navigate} />;
+  else if (page === 'ai-assistant') content = <AiAssistant onNavigate={navigate} />;
   else content = <ComingSoon title={TITLES[page] || 'Coming soon'} />;
 
 
