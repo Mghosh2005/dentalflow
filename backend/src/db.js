@@ -154,5 +154,7 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN booked_by_ai INTEGER DEFAULT 
 try { db.exec(`ALTER TABLE appointments ADD COLUMN call_log_id INTEGER REFERENCES call_logs(id)`); } catch(e) {}
 try { db.exec(`ALTER TABLE alerts ADD COLUMN call_log_id INTEGER REFERENCES call_logs(id)`); } catch(e) {}
 try { db.exec(`ALTER TABLE alerts ADD COLUMN escalation_type TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE ai_settings ADD COLUMN groq_api_key TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE ai_settings ADD COLUMN openai_api_key TEXT`); } catch(e) {}
 
 export default db;

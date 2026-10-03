@@ -921,27 +921,46 @@ async function transcribeAudioFile(filePath) {
     });
   }
 
+  // Load Groq & OpenAI keys from env OR database
+  let groqKey = (process.env.GROQ_API_KEY || '').trim();
+  let openaiKey = (process.env.OPENAI_API_KEY || '').trim();
+  if (!groqKey || !openaiKey) {
+    try {
+      const dbSettings = db.prepare('SELECT groq_api_key, openai_api_key FROM ai_settings WHERE practice_id = ?').get(PRACTICE_ID);
+      if (dbSettings) {
+        if (!groqKey && dbSettings.groq_api_key) groqKey = dbSettings.groq_api_key.trim();
+        if (!openaiKey && dbSettings.openai_api_key) openaiKey = dbSettings.openai_api_key.trim();
+      }
+    } catch (e) {}
+  }
+
   // Option 2: Cloud Groq Whisper API (Ultra-fast ~150ms transcription if key provided)
-  if (process.env.GROQ_API_KEY) {
+  if (groqKey) {
     try {
       console.log('[Transcribe] Using Groq Cloud Whisper API...');
       const fileBuffer = await fs.promises.readFile(filePath);
-      const blob = new Blob([fileBuffer], { type: 'audio/webm' });
+      const ext = path.extname(filePath).replace('.', '') || 'webm';
+      const mime = ext === 'mp4' ? 'audio/mp4' : (ext === 'wav' ? 'audio/wav' : 'audio/webm');
+      const blob = new Blob([fileBuffer], { type: mime });
       const formData = new FormData();
-      formData.append('file', blob, 'audio.webm');
+      formData.append('file', blob, `audio.${ext}`);
       formData.append('model', 'whisper-large-v3-turbo');
       formData.append('language', 'en');
-      formData.append('prompt', 'Reyan Das, Helen Styles, Dr. Lindsay Wren, dental clinic appointment');
+      formData.append('prompt', 'Reyan Das, Helen Styles, Dr. Lindsay Wren, dental clinic appointment, booking checkup');
 
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
+        headers: { 'Authorization': `Bearer ${groqKey}` },
         body: formData,
       });
 
       if (response.ok) {
         const json = await response.json();
+        console.log('[Transcribe] Groq recognized:', json.text);
         return { text: json.text || '' };
+      } else {
+        const errBody = await response.text();
+        console.warn(`[Transcribe] Groq API returned HTTP ${response.status}:`, errBody);
       }
     } catch (e) {
       console.warn('[Transcribe] Groq API call failed:', e.message);
@@ -949,19 +968,21 @@ async function transcribeAudioFile(filePath) {
   }
 
   // Option 3: Cloud OpenAI Whisper API
-  if (process.env.OPENAI_API_KEY) {
+  if (openaiKey) {
     try {
       console.log('[Transcribe] Using OpenAI Cloud Whisper API...');
       const fileBuffer = await fs.promises.readFile(filePath);
-      const blob = new Blob([fileBuffer], { type: 'audio/webm' });
+      const ext = path.extname(filePath).replace('.', '') || 'webm';
+      const mime = ext === 'mp4' ? 'audio/mp4' : (ext === 'wav' ? 'audio/wav' : 'audio/webm');
+      const blob = new Blob([fileBuffer], { type: mime });
       const formData = new FormData();
-      formData.append('file', blob, 'audio.webm');
+      formData.append('file', blob, `audio.${ext}`);
       formData.append('model', 'whisper-1');
       formData.append('language', 'en');
 
       const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
+        headers: { 'Authorization': `Bearer ${openaiKey}` },
         body: formData,
       });
 
@@ -1115,7 +1136,12 @@ app.get('/api/ai-settings', (req, res) => {
 });
 
 app.patch('/api/ai-settings', (req, res) => {
-  const { greeting_script, voice_id, voice_name, language, enable_sms_confirmation, enable_email_confirmation, enable_whatsapp_confirmation, after_hours_enabled, emergency_forward_phone, voice_clone_sample_name } = req.body;
+  const { 
+    greeting_script, voice_id, voice_name, language, 
+    enable_sms_confirmation, enable_email_confirmation, enable_whatsapp_confirmation, 
+    after_hours_enabled, emergency_forward_phone, voice_clone_sample_name,
+    groq_api_key, openai_api_key
+  } = req.body;
   let settings = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(PRACTICE_ID);
   if (!settings) {
     db.prepare(`INSERT INTO ai_settings (practice_id) VALUES (?)`).run(PRACTICE_ID);
@@ -1131,12 +1157,16 @@ app.patch('/api/ai-settings', (req, res) => {
       enable_whatsapp_confirmation = COALESCE(?, enable_whatsapp_confirmation),
       after_hours_enabled = COALESCE(?, after_hours_enabled),
       emergency_forward_phone = COALESCE(?, emergency_forward_phone),
-      voice_clone_sample_name = COALESCE(?, voice_clone_sample_name)
+      voice_clone_sample_name = COALESCE(?, voice_clone_sample_name),
+      groq_api_key = COALESCE(?, groq_api_key),
+      openai_api_key = COALESCE(?, openai_api_key)
     WHERE practice_id = ?`
   ).run(
     greeting_script ?? null, voice_id ?? null, voice_name ?? null, language ?? null,
     enable_sms_confirmation ?? null, enable_email_confirmation ?? null, enable_whatsapp_confirmation ?? null,
     after_hours_enabled ?? null, emergency_forward_phone ?? null, voice_clone_sample_name ?? null,
+    groq_api_key !== undefined ? (groq_api_key?.trim() || null) : null,
+    openai_api_key !== undefined ? (openai_api_key?.trim() || null) : null,
     PRACTICE_ID
   );
   const updated = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(PRACTICE_ID);

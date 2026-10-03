@@ -40,6 +40,8 @@ export default function AiSettings() {
       enable_whatsapp_confirmation: form.get('enable_whatsapp_confirmation') === 'on' ? 1 : 0,
       after_hours_enabled: form.get('after_hours_enabled') === 'on' ? 1 : 0,
       emergency_forward_phone: form.get('emergency_forward_phone'),
+      groq_api_key: form.get('groq_api_key'),
+      openai_api_key: form.get('openai_api_key'),
     };
     const updated = await api.updateAiSettings(data);
     setSettings(updated);
@@ -126,6 +128,41 @@ export default function AiSettings() {
                 WhatsApp
               </label>
             </div>
+          </div>
+
+          <div className="space-y-4 border-b border-black/5 pb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-ink-900 flex items-center gap-2">
+                <span>Cloud Speech-to-Text (STT)</span>
+                <span className="text-[11px] bg-emerald-100 text-emerald-800 font-medium px-2 py-0.5 rounded-full">Recommended for Render</span>
+              </h2>
+              <p className="text-xs text-ink-900/60 mt-1">
+                Provides instant ~150ms speech recognition across all browsers (including Brave, Chrome, Safari & mobile) without requiring a GPU server.
+              </p>
+            </div>
+
+            <Field label="Groq Whisper API Key (Free)">
+              <input 
+                type="password" 
+                name="groq_api_key" 
+                className={inputClass} 
+                defaultValue={settings.groq_api_key || ''} 
+                placeholder="gsk_..." 
+              />
+              <p className="text-xs text-ink-900/40 mt-1">
+                Get a free key at <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-teal-600 underline font-medium">console.groq.com</a> (uses Whisper Large V3 Turbo with zero card required).
+              </p>
+            </Field>
+
+            <Field label="OpenAI API Key (Optional Alternative)">
+              <input 
+                type="password" 
+                name="openai_api_key" 
+                className={inputClass} 
+                defaultValue={settings.openai_api_key || ''} 
+                placeholder="sk-..." 
+              />
+            </Field>
           </div>
 
           <div className="space-y-4 pb-2">

@@ -49,6 +49,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
   const isRecordingRef = useRef(isRecording);
   const isTranscribingRef = useRef(isTranscribing);
   const speechDetectedRef = useRef(false);
+  const recordingStartTimeRef = useRef(0);
   const autoStopTimerRef = useRef(null);
   const maxRecordingTimerRef = useRef(null);
   const useBrowserSTTRef = useRef(false);
@@ -84,7 +85,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
   // Liveness guard: during active voice call, if AI is not speaking, not recording, not transcribing, and not muted, start listening
   useEffect(() => {
-    if (!isCallActive || sessionType !== 'call' || isAiSpeaking || isRecording || isTranscribing || isMuted) {
+    if (!isCallActive || sessionType !== 'call' || isAiSpeaking || isRecording || isTranscribing || isMuted || micError) {
       return;
     }
     const guardTimer = setTimeout(() => {
@@ -92,9 +93,9 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         console.log('[Liveness Guard] Call active and idle, initiating microphone listening...');
         startRecording();
       }
-    }, 350);
+    }, 450);
     return () => clearTimeout(guardTimer);
-  }, [isCallActive, sessionType, isAiSpeaking, isRecording, isTranscribing, isMuted]);
+  }, [isCallActive, sessionType, isAiSpeaking, isRecording, isTranscribing, isMuted, micError]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -190,7 +191,10 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         console.warn('[Browser STT] Notice:', event.error);
         setIsRecording(false);
         isRecordingRef.current = false;
-        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        useBrowserSTTRef.current = false;
+        if (event.error === 'network') {
+          setMicError('Browser voice service blocked by browser (common in Brave). Please use Google Chrome / Edge, or add a free GROQ_API_KEY in AI Settings.');
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           setMicError(`Voice notice: ${event.error}. You can also type below.`);
         }
       };
@@ -396,11 +400,11 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
             // Auto Voice Activity Detection (VAD) when recording
             if (isRecordingRef.current) {
-              if (vol > 4) {
-                // Speech detected (lowered threshold from 12 to 4 for sensitive laptop mic pickup)
+              if (vol > 12) {
+                // Speech detected (filter out room background noise)
                 if (!speechDetectedRef.current) {
                   speechDetectedRef.current = true;
-                  setMicStatusText('🎙️ Listening... (will auto-send on pause)');
+                  setMicStatusText('🎙️ Listening... (speak naturally)');
                 }
                 // Clear any pending auto-stop timer
                 if (autoStopTimerRef.current) {
@@ -408,15 +412,18 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
                   autoStopTimerRef.current = null;
                 }
               } else if (speechDetectedRef.current && !autoStopTimerRef.current) {
-                // Silence detected after speech — countdown to stop and send (950ms natural pause)
-                autoStopTimerRef.current = setTimeout(() => {
-                  autoStopTimerRef.current = null;
-                  if (isRecordingRef.current && speechDetectedRef.current) {
-                    console.log('[VAD] Auto-stopping recording after natural pause');
-                    setMicStatusText('⚡ Processing your speech...');
-                    stopRecording();
-                  }
-                }, 950);
+                // Silence detected after speech — wait at least 1.6s of total recording before auto-stopping
+                const elapsed = Date.now() - (recordingStartTimeRef.current || 0);
+                if (elapsed > 1600) {
+                  autoStopTimerRef.current = setTimeout(() => {
+                    autoStopTimerRef.current = null;
+                    if (isRecordingRef.current && speechDetectedRef.current) {
+                      console.log('[VAD] Auto-stopping recording after natural pause');
+                      setMicStatusText('⚡ Processing your speech...');
+                      stopRecording();
+                    }
+                  }, 1200);
+                }
               }
             }
 
@@ -454,6 +461,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
     // Reset VAD state for fresh recording
     speechDetectedRef.current = false;
+    recordingStartTimeRef.current = Date.now();
     if (autoStopTimerRef.current) {
       clearTimeout(autoStopTimerRef.current);
       autoStopTimerRef.current = null;
@@ -504,17 +512,17 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         console.log('[STT] Audio blob size:', audioBlob.size, 'bytes, type:', audioBlob.type);
 
-        if (audioBlob.size > 300) {
+        if (audioBlob.size > 1800 && speechDetectedRef.current) {
           await transcribeWithWhisper(audioBlob);
         } else {
-          console.warn('[STT] Audio blob too small (<300 bytes), re-listening...');
+          console.warn('[STT] Audio blob too small or no speech detected, re-listening...');
           setMicStatusText('Listening...');
-          if (isCallActiveRef.current && !isAiSpeakingRef.current && !isMuted) {
+          if (isCallActiveRef.current && !isAiSpeakingRef.current && !isMuted && !micError) {
             setTimeout(() => {
-              if (isCallActiveRef.current && !isAiSpeakingRef.current && !isRecordingRef.current) {
+              if (isCallActiveRef.current && !isAiSpeakingRef.current && !isRecordingRef.current && !micError) {
                 startAutoListening();
               }
-            }, 600);
+            }, 800);
           }
         }
       };
@@ -523,9 +531,8 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         console.error('[STT] MediaRecorder error event:', event.error);
         setIsRecording(false);
         isRecordingRef.current = false;
-        // Fallback to browser recognition
-        useBrowserSTTRef.current = true;
-        startBrowserSpeechRecognition();
+        useBrowserSTTRef.current = false;
+        setMicError('Microphone recorder error. Please check permissions.');
       };
 
       mediaRecorderRef.current = recorder;
@@ -595,11 +602,26 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
       // Handle environments without backend torch (e.g. Render Free)
       if (res.error === 'NO_BACKEND_STT' || res.error?.includes('torch') || res.error?.includes('No module named') || res.error?.includes('Command failed')) {
-        console.warn('[STT] Backend Whisper unavailable on server, automatically activating browser speech recognition');
+        console.warn('[STT] Backend STT unavailable on server:', res.message || res.error);
         setIsTranscribing(false);
-        useBrowserSTTRef.current = true;
-        setMicStatusText('🎙️ Switched to Browser Voice Recognition');
-        startBrowserSpeechRecognition();
+
+        // Detect Brave or browser that blocks Web Speech API
+        const isBrave = (navigator.brave && typeof navigator.brave.isBrave === 'function') ||
+                        navigator.userAgent.includes('Brave');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (SpeechRecognition && !isBrave) {
+          useBrowserSTTRef.current = true;
+          setMicStatusText('🎙️ Switched to Browser Voice Recognition');
+          startBrowserSpeechRecognition();
+        } else {
+          useBrowserSTTRef.current = false;
+          setMicError(
+            isBrave
+              ? 'Voice recognition on Render requires a free Groq API key (Brave blocks browser speech). Please add a free GROQ_API_KEY in AI Settings or use Chrome / Edge.'
+              : 'Voice recognition on Render requires a cloud STT key. Add a free GROQ_API_KEY in AI Settings or type below.'
+          );
+        }
         return;
       }
 
@@ -614,19 +636,27 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         if (res.error) {
           console.error('[STT] Whisper error:', res.error);
         }
-        if (isCallActiveRef.current && !isAiSpeakingRef.current && !isMuted) {
+        if (isCallActiveRef.current && !isAiSpeakingRef.current && !isMuted && !micError) {
           setTimeout(() => {
-            if (isCallActiveRef.current && !isAiSpeakingRef.current && !isRecordingRef.current) {
+            if (isCallActiveRef.current && !isAiSpeakingRef.current && !isRecordingRef.current && !micError) {
               startAutoListening();
             }
           }, 800);
         }
       }
     } catch (err) {
-      console.warn('[STT] Backend transcription failed, switching to browser recognition:', err.message);
+      console.warn('[STT] Backend transcription failed:', err.message);
       setIsTranscribing(false);
-      useBrowserSTTRef.current = true;
-      startBrowserSpeechRecognition();
+      const isBrave = (navigator.brave && typeof navigator.brave.isBrave === 'function') ||
+                      navigator.userAgent.includes('Brave');
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition && !isBrave) {
+        useBrowserSTTRef.current = true;
+        startBrowserSpeechRecognition();
+      } else {
+        useBrowserSTTRef.current = false;
+        setMicError('Audio transcription failed. You can type below or add a free GROQ_API_KEY in AI Settings.');
+      }
     }
   };
 
@@ -634,11 +664,11 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
   const startAutoListening = () => {
     isAiSpeakingRef.current = false;
     setIsAiSpeaking(false);
-    if (!isCallActiveRef.current || isMuted || sessionTypeRef.current !== 'call') return;
+    if (!isCallActiveRef.current || isMuted || sessionTypeRef.current !== 'call' || micError) return;
     if (isRecordingRef.current || isTranscribingRef.current) return;
     // Brief pause before auto-starting mic (snappy and natural)
     setTimeout(() => {
-      if (!isCallActiveRef.current || isAiSpeakingRef.current || isMuted || sessionTypeRef.current !== 'call') return;
+      if (!isCallActiveRef.current || isAiSpeakingRef.current || isMuted || sessionTypeRef.current !== 'call' || micError) return;
       if (isRecordingRef.current || isTranscribingRef.current) return;
       setMicStatusText('🎙️ Listening... speak naturally');
       startRecording();
@@ -977,7 +1007,11 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
             <p className="text-amber-200/80 mt-0.5">{micError}</p>
           </div>
           <button
-            onClick={startRecording}
+            onClick={() => {
+              setMicError(null);
+              useBrowserSTTRef.current = false;
+              startRecording();
+            }}
             className="px-2 py-0.5 bg-amber-800/80 hover:bg-amber-700 text-amber-100 rounded text-[10px] font-medium shrink-0"
           >
             Retry
