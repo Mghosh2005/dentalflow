@@ -30,4 +30,14 @@ export const api = {
   createFollowUp: (data) => request('/api/follow-ups', { method: 'POST', body: JSON.stringify(data) }),
   completeFollowUp: (id) => request(`/api/follow-ups/${id}/complete`, { method: 'POST' }),
   getAnalytics: () => request('/api/analytics'),
+  getCallLogs: () => request('/api/call-logs'),
+  createCallLog: (data) => request('/api/call-logs', { method: 'POST', body: JSON.stringify(data) }),
+  updateCallLog: (id, data) => request(`/api/call-logs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getAiSettings: () => request('/api/ai-settings'),
+  updateAiSettings: (data) => request('/api/ai-settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  triggerAiBookingWebhook: (data) => request('/api/ai-booking-webhook', { method: 'POST', body: JSON.stringify(data) }),
+  simulateAiChat: (data) => request('/api/simulate-ai-chat', { method: 'POST', body: JSON.stringify(data) }),
+  transcribeAudio: (data) => request('/api/transcribe', { method: 'POST', body: JSON.stringify(data) }),
 };
+
+

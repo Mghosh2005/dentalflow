@@ -1,6 +1,6 @@
 import {
   LayoutGrid, Calendar, Users, Inbox, Send,
-  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope
+  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings
 } from 'lucide-react';
 
 const NAV = [
@@ -20,7 +20,8 @@ const NAV = [
   {
     section: 'AI tools',
     items: [
-      { key: 'call-summary', label: 'AI call summary', icon: FileText, comingSoon: true },
+      { key: 'ai-settings', label: 'AI Settings', icon: Settings },
+      { key: 'call-summary', label: 'AI call summary', icon: FileText },
       { key: 'voice-notes', label: 'Voice notes', icon: Mic, comingSoon: true },
       { key: 'ai-assistant', label: 'AI assistant', icon: Sparkles, comingSoon: true },
     ],

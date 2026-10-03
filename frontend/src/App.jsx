@@ -9,9 +9,10 @@ import Alerts from './pages/Alerts';
 import Practitioners from './pages/Practitioners';
 import Analytics from './pages/Analytics';
 import ComingSoon from './pages/ComingSoon';
+import AiSettings from './pages/AiSettings';
+import AiCallSummary from './pages/AiCallSummary';
 
 const TITLES = {
-  'call-summary': 'AI call summary',
   'voice-notes': 'Voice notes',
   'ai-assistant': 'AI assistant',
 };
@@ -35,7 +36,10 @@ export default function App() {
   else if (page === 'followups') content = <FollowUps />;
   else if (page === 'practitioners') content = <Practitioners />;
   else if (page === 'analytics') content = <Analytics />;
+  else if (page === 'ai-settings') content = <AiSettings />;
+  else if (page === 'call-summary') content = <AiCallSummary />;
   else content = <ComingSoon title={TITLES[page] || 'Coming soon'} />;
+
 
   return (
     <div className="flex min-h-screen bg-[#F7F8FA]">

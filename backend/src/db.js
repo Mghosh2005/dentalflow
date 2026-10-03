@@ -112,6 +112,47 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
   session_id TEXT NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS call_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practice_id INTEGER REFERENCES practices(id),
+  patient_id INTEGER REFERENCES patients(id),
+  caller_name TEXT,
+  caller_name_spelled TEXT,
+  caller_phone TEXT,
+  caller_email TEXT,
+  call_type TEXT DEFAULT 'inbound_ai',
+  is_after_hours INTEGER DEFAULT 0,
+  duration_seconds INTEGER,
+  intent TEXT DEFAULT 'general_inquiry',
+  ai_summary TEXT,
+  transcript TEXT,
+  sentiment TEXT DEFAULT 'neutral',
+  status TEXT DEFAULT 'open',
+  is_won_back INTEGER DEFAULT 0,
+  appointment_id INTEGER REFERENCES appointments(id),
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ai_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practice_id INTEGER REFERENCES practices(id),
+  greeting_script TEXT DEFAULT 'Thank you for calling {practice_name}. This is Greeta, your AI receptionist. How can I help you today?',
+  voice_id TEXT DEFAULT 'en-IN-NeerjaExpressiveNeural',
+  voice_name TEXT DEFAULT 'Neerja (Expressive Female)',
+  language TEXT DEFAULT 'en-IN',
+  enable_sms_confirmation INTEGER DEFAULT 1,
+  enable_email_confirmation INTEGER DEFAULT 1,
+  enable_whatsapp_confirmation INTEGER DEFAULT 0,
+  after_hours_enabled INTEGER DEFAULT 1,
+  emergency_forward_phone TEXT,
+  voice_clone_sample_name TEXT
+);
 `);
+
+try { db.exec(`ALTER TABLE appointments ADD COLUMN booked_by_ai INTEGER DEFAULT 0`); } catch(e) {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN call_log_id INTEGER REFERENCES call_logs(id)`); } catch(e) {}
+try { db.exec(`ALTER TABLE alerts ADD COLUMN call_log_id INTEGER REFERENCES call_logs(id)`); } catch(e) {}
+try { db.exec(`ALTER TABLE alerts ADD COLUMN escalation_type TEXT`); } catch(e) {}
 
 export default db;

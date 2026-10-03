@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarCheck, HeartHandshake, DollarSign, TrendingUp, PhoneMissed, XCircle, RefreshCw, ArrowUpRight, Send } from 'lucide-react';
+import { CalendarCheck, HeartHandshake, DollarSign, TrendingUp, PhoneMissed, XCircle, RefreshCw, ArrowUpRight, Send, PhoneIncoming, PhoneForwarded, Bot } from 'lucide-react';
 import { api } from '../api/client';
 import StatCard from '../components/StatCard';
 
@@ -54,15 +54,24 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {summary && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <StatCard label="Today's appointments" value={summary.todaysAppointments} icon={CalendarCheck} />
-          <StatCard label="Active patients" value={summary.activePatients} icon={HeartHandshake} />
-          <StatCard label="Revenue protected" value={`$${summary.revenueProtected.toLocaleString()}`} icon={DollarSign} accent="teal" valueTone="teal" />
-          <StatCard label="Conversion rate" value={`${summary.conversionRate}%`} icon={TrendingUp} accent="teal" valueTone="teal" />
-          <StatCard label="Missed calls" value={summary.missedCalls} icon={PhoneMissed} valueTone={summary.missedCalls > 0 ? 'clay' : 'default'} />
-          <StatCard label="Missed appointments" value={summary.missedAppointments} icon={XCircle} valueTone={summary.missedAppointments > 0 ? 'clay' : 'default'} />
-          <StatCard label="Pending follow-ups" value={summary.pendingFollowUps} icon={Send} />
-        </div>
+        <>
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <StatCard label="Today's appointments" value={summary.todaysAppointments} icon={CalendarCheck} />
+            <StatCard label="Active patients" value={summary.activePatients} icon={HeartHandshake} />
+            <StatCard label="Revenue protected" value={`$${summary.revenueProtected.toLocaleString()}`} icon={DollarSign} accent="teal" valueTone="teal" />
+            <StatCard label="Conversion rate" value={`${summary.conversionRate}%`} icon={TrendingUp} accent="teal" valueTone="teal" />
+            <StatCard label="Missed calls" value={summary.missedCalls} icon={PhoneMissed} valueTone={summary.missedCalls > 0 ? 'clay' : 'default'} />
+            <StatCard label="Missed appointments" value={summary.missedAppointments} icon={XCircle} valueTone={summary.missedAppointments > 0 ? 'clay' : 'default'} />
+            <StatCard label="Pending follow-ups" value={summary.pendingFollowUps} icon={Send} />
+          </div>
+
+          <h2 className="font-display font-semibold text-ink-900 mb-3 text-sm tracking-wide uppercase text-ink-900/50">AI Voice Receptionist</h2>
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <StatCard label="Calls Handled (After Hours)" value={summary.callsHandledAfterHours || 0} icon={PhoneIncoming} accent="teal" valueTone="teal" />
+            <StatCard label="Missed Calls Won Back" value={summary.missedCallsWonBack || 0} icon={PhoneForwarded} accent="teal" valueTone="teal" />
+            <StatCard label="Treatment Revenue (AI Booked)" value={`$${(summary.treatmentRevenueAi || 0).toLocaleString()}`} icon={Bot} accent="teal" valueTone="teal" />
+          </div>
+        </>
       )}
 
       <div className="grid grid-cols-2 gap-6">
