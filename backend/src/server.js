@@ -11,7 +11,10 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from './db.js';
+import { bootstrapDatabaseIfEmpty } from './seed.js';
 
+// Auto-bootstrap fresh database if empty
+bootstrapDatabaseIfEmpty(db);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -445,6 +448,10 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 
 // Seed default message templates
 (function seedMessageTemplates() {
+  const practiceExists = db.prepare('SELECT id FROM practices WHERE id = ?').get(PRACTICE_ID);
+  if (!practiceExists) {
+    return;
+  }
   const count = db.prepare('SELECT COUNT(*) as c FROM message_templates WHERE practice_id = ?').get(PRACTICE_ID).c;
   if (count === 0) {
     const templates = [
@@ -484,6 +491,7 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   const count = db.prepare('SELECT COUNT(*) as c FROM practitioner_availability').get().c;
   if (count === 0) {
     const practitioners = db.prepare('SELECT id FROM practitioners WHERE practice_id = ?').all(PRACTICE_ID);
+    if (!practitioners || practitioners.length === 0) return;
     const stmt = db.prepare(
       `INSERT INTO practitioner_availability (practitioner_id, day_of_week, start_time, end_time, slot_duration_minutes) VALUES (?, ?, ?, ?, ?)`
     );
@@ -496,6 +504,7 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
     console.log('[Availability] Default practitioner availability seeded');
   }
 })();
+
 
 // ===================== PATIENT PORTAL ENDPOINTS =====================
 

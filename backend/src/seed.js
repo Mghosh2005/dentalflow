@@ -1,40 +1,45 @@
-import db from './db.js';
+import defaultDb from './db.js';
 import bcrypt from 'bcryptjs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-if (process.env.NODE_ENV === 'production' && !process.env.FORCE_SEED) {
-  console.error('[Safety] seed.js cannot be run in production without FORCE_SEED=1 because it resets all database records.');
-  process.exit(1);
-}
+export function seedDatabase(db = defaultDb, { force = false } = {}) {
+  const practiceCount = db.prepare('SELECT COUNT(*) as c FROM practices').get().c;
+  if (practiceCount > 0 && !force) {
+    return false;
+  }
 
-db.pragma('foreign_keys = OFF');
-const clearAll = db.transaction(() => {
-  db.exec(`
-    DELETE FROM follow_up_messages;
-    DELETE FROM message_templates;
-    DELETE FROM treatment_plans;
-    DELETE FROM practitioner_availability;
-    DELETE FROM user_accounts;
-    DELETE FROM call_logs;
-    DELETE FROM ai_settings;
-    DELETE FROM alerts;
-    DELETE FROM follow_ups;
-    DELETE FROM enquiries;
-    DELETE FROM appointments;
-    DELETE FROM patients;
-    DELETE FROM practitioners;
-    DELETE FROM users;
-    DELETE FROM practices;
-    DELETE FROM sqlite_sequence WHERE name IN
-      ('follow_up_messages','message_templates','treatment_plans','practitioner_availability',
-       'user_accounts','call_logs','ai_settings','alerts','follow_ups','enquiries',
-       'appointments','patients','practitioners','users','practices');
-  `);
-});
-clearAll();
-db.pragma('foreign_keys = ON');
+  if (force) {
+    db.pragma('foreign_keys = OFF');
+    const clearAll = db.transaction(() => {
+      db.exec(`
+        DELETE FROM follow_up_messages;
+        DELETE FROM message_templates;
+        DELETE FROM treatment_plans;
+        DELETE FROM practitioner_availability;
+        DELETE FROM user_accounts;
+        DELETE FROM call_logs;
+        DELETE FROM ai_settings;
+        DELETE FROM alerts;
+        DELETE FROM follow_ups;
+        DELETE FROM enquiries;
+        DELETE FROM appointments;
+        DELETE FROM patients;
+        DELETE FROM practitioners;
+        DELETE FROM users;
+        DELETE FROM practices;
+        DELETE FROM sqlite_sequence WHERE name IN
+          ('follow_up_messages','message_templates','treatment_plans','practitioner_availability',
+           'user_accounts','call_logs','ai_settings','alerts','follow_ups','enquiries',
+           'appointments','patients','practitioners','users','practices');
+      `);
+    });
+    clearAll();
+    db.pragma('foreign_keys = ON');
+  }
 
-// 1. Practices
-const insertPractice = db.prepare(`INSERT INTO practices (name, address, timezone) VALUES (?, ?, ?)`);
+  // 1. Practices
+  const insertPractice = db.prepare(`INSERT INTO practices (name, address, timezone) VALUES (?, ?, ?)`);
 const p1 = insertPractice.run('DentalFlow – Downtown', '120 Main Street, Downtown', 'America/New_York').lastInsertRowid;
 const p2 = insertPractice.run('DentalFlow – Westside Plaza', '450 West Avenue, Suite 200', 'America/New_York').lastInsertRowid;
 const p3 = insertPractice.run('DentalFlow – North Hills', '88 North Hills Blvd', 'America/New_York').lastInsertRowid;
@@ -440,12 +445,39 @@ const staffHash = bcrypt.hashSync('admin123', 10);
 const patientHash = bcrypt.hashSync('patient123', 10);
 
 insertAccount.run(practiceId, 'admin', staffHash, 'staff', staffUserId, null, 'Dr. Sarah Mitchell');
-insertAccount.run(practiceId, 'c.white', patientHash, 'patient', null, patientIds[0], 'Christopher White');
-insertAccount.run(practiceId, 'j.thomas', patientHash, 'patient', null, patientIds[1], 'James Thomas');
-insertAccount.run(practiceId, 'e.rodriguez', patientHash, 'patient', null, patientIds[2], 'Emma Rodriguez');
-insertAccount.run(practiceId, 'm.chen', patientHash, 'patient', null, patientIds[3], 'Michael Chen');
+  insertAccount.run(practiceId, 'c.white', patientHash, 'patient', null, patientIds[0], 'Christopher White');
+  insertAccount.run(practiceId, 'j.thomas', patientHash, 'patient', null, patientIds[1], 'James Thomas');
+  insertAccount.run(practiceId, 'e.rodriguez', patientHash, 'patient', null, patientIds[2], 'Emma Rodriguez');
+  insertAccount.run(practiceId, 'm.chen', patientHash, 'patient', null, patientIds[3], 'Michael Chen');
 
-console.log('Seed completed successfully!');
-console.log('Credentials:');
-console.log(' - Staff: admin / admin123');
-console.log(' - Patient: c.white / patient123');
+  console.log('[Seed] Database seeded successfully!');
+  console.log('[Seed] Credentials:');
+  console.log(' - Staff: admin / admin123');
+  console.log(' - Patient: c.white / patient123');
+  return true;
+}
+
+export function bootstrapDatabaseIfEmpty(db = defaultDb) {
+  const practiceCount = db.prepare('SELECT COUNT(*) as c FROM practices').get().c;
+  if (practiceCount === 0) {
+    console.log('[Bootstrap] Initializing fresh database with default clinic records...');
+    seedDatabase(db, { force: false });
+    return true;
+  }
+  return false;
+}
+
+// CLI execution handling: node src/seed.js
+const currentFile = fileURLToPath(import.meta.url);
+const invokedFile = process.argv[1] ? path.resolve(process.argv[1]) : '';
+const isDirectRun = invokedFile && path.normalize(currentFile).toLowerCase() === path.normalize(invokedFile).toLowerCase();
+
+if (isDirectRun) {
+  if (process.env.NODE_ENV === 'production' && !process.env.FORCE_SEED) {
+    console.error('[Safety] seed.js cannot be run in production without FORCE_SEED=1 because it resets all database records.');
+    process.exit(1);
+  }
+  seedDatabase(defaultDb, { force: true });
+}
+
+
