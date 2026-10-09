@@ -5,8 +5,8 @@ import { Stethoscope, ShieldCheck, UserCheck, ArrowRight, Lock, User, Eye, EyeOf
 export default function Login() {
   const { login } = useAuth();
   const [userType, setUserType] = useState('staff'); // 'staff' | 'patient'
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -14,13 +14,6 @@ export default function Login() {
   const switchType = (type) => {
     setUserType(type);
     setError('');
-    if (type === 'staff') {
-      setUsername('admin');
-      setPassword('admin123');
-    } else {
-      setUsername('c.white');
-      setPassword('patient123');
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -138,7 +131,7 @@ export default function Login() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-ink-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 transition-all font-medium"
-                placeholder={userType === 'staff' ? 'admin' : 'c.white'}
+                placeholder={userType === 'staff' ? 'Enter staff username' : 'Enter patient username or ID'}
               />
             </div>
           </div>
@@ -185,32 +178,34 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Demo Fast Login Divider */}
-        <div className="mt-8 pt-6 border-t border-slate-200">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-ink-900/40 text-center mb-3">
-            Quick 1-Click Demo Login
-          </p>
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('staff')}
-              disabled={loading}
-              className="py-2 px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-ink-900 rounded-xl border border-black/5 flex flex-col items-center justify-center transition-all text-center leading-tight"
-            >
-              <span>Demo Staff</span>
-              <span className="text-[10px] text-ink-900/50 font-normal">admin / admin123</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('patient')}
-              disabled={loading}
-              className="py-2 px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-ink-900 rounded-xl border border-black/5 flex flex-col items-center justify-center transition-all text-center leading-tight"
-            >
-              <span>Demo Patient</span>
-              <span className="text-[10px] text-ink-900/50 font-normal">c.white / patient123</span>
-            </button>
+        {/* Demo Fast Login Divider: Only visible when explicitly enabled in local development */}
+        {import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_LOGINS === 'true' && (
+          <div className="mt-8 pt-6 border-t border-slate-200">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-ink-900/40 text-center mb-3">
+              Development Quick Demo Login
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => handleDemoLogin('staff')}
+                disabled={loading}
+                className="py-2 px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-ink-900 rounded-xl border border-black/5 flex flex-col items-center justify-center transition-all text-center leading-tight"
+              >
+                <span>Demo Staff</span>
+                <span className="text-[10px] text-ink-900/50 font-normal">admin</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDemoLogin('patient')}
+                disabled={loading}
+                className="py-2 px-3 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-ink-900 rounded-xl border border-black/5 flex flex-col items-center justify-center transition-all text-center leading-tight"
+              >
+                <span>Demo Patient</span>
+                <span className="text-[10px] text-ink-900/50 font-normal">c.white</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <p className="mt-6 text-xs text-white/40">

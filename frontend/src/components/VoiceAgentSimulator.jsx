@@ -2,7 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, Bot, Calendar, CheckCircle2, AlertTriangle, X, Send, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api/client';
 
-export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) {
+export default function VoiceAgentSimulator({
+  mode = 'embedded',
+  onCallEnded,
+  title,
+  subtitle,
+  statusLabel,
+  patient,
+  onAppointmentBooked,
+}) {
   const [isOpen, setIsOpen] = useState(mode === 'embedded');
   const [isCallActive, setIsCallActive] = useState(false);
   const [sessionType, setSessionType] = useState('call'); // 'call' | 'chat'
@@ -688,10 +696,14 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     // Prompt for mic permission
     await ensureAudioStream();
 
-    let greeting = "Hi, you've reached DentalFlow Downtown. I'm Neerja — the AI receptionist for the dental team, and this call's recorded. Just ask me anything and I'll get it sorted. How can I help?";
+    const patientName = patient?.name || patient?.display_name || '';
+    const patientFirstName = patientName ? patientName.split(' ')[0] : '';
+    let greeting = patientFirstName
+      ? `Hi ${patientFirstName}! You've reached DentalFlow Downtown. I'm Neerja, your AI dental assistant. How can I help you with your appointments today?`
+      : "Hi, you've reached DentalFlow Downtown. I'm Neerja — the AI receptionist for the dental team, and this call's recorded. Just ask me anything and I'll get it sorted. How can I help?";
     try {
       const settings = await api.getAiSettings();
-      if (settings?.greeting_script) {
+      if (settings?.greeting_script && !patientFirstName) {
         greeting = settings.greeting_script.replace('{practice_name}', 'DentalFlow Downtown');
       }
     } catch (e) {}
@@ -704,10 +716,10 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
     setMessages([initialAiMessage]);
     setContext({
-      caller_name: '',
-      caller_phone: '',
-      caller_email: '',
-      intent: 'general_inquiry',
+      caller_name: patientName,
+      caller_phone: patient?.phone || '',
+      caller_email: patient?.email || '',
+      intent: 'appointment_booking',
       booking_step: 'idle',
     });
 
@@ -724,10 +736,14 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
     isCallActiveRef.current = true;
     setCallDuration(0);
 
-    let greeting = "Hi! You're chatting with Neerja, the AI receptionist for DentalFlow Downtown. How can I help you today?";
+    const patientName = patient?.name || patient?.display_name || '';
+    const patientFirstName = patientName ? patientName.split(' ')[0] : '';
+    let greeting = patientFirstName
+      ? `Hi ${patientFirstName}! You're chatting with Neerja, your AI receptionist at DentalFlow Downtown. How can I help you book or manage your appointments today?`
+      : "Hi! You're chatting with Neerja, the AI receptionist for DentalFlow Downtown. How can I help you today?";
     try {
       const settings = await api.getAiSettings();
-      if (settings?.greeting_script) {
+      if (settings?.greeting_script && !patientFirstName) {
         greeting = settings.greeting_script.replace('{practice_name}', 'DentalFlow Downtown');
       }
     } catch (e) {}
@@ -740,10 +756,10 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
 
     setMessages([initialAiMessage]);
     setContext({
-      caller_name: '',
-      caller_phone: '',
-      caller_email: '',
-      intent: 'general_inquiry',
+      caller_name: patientName,
+      caller_phone: patient?.phone || '',
+      caller_email: patient?.email || '',
+      intent: 'appointment_booking',
       booking_step: 'idle',
     });
   };
@@ -861,6 +877,9 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
       };
 
       setMessages((prev) => [...prev, aiMessage]);
+      if (res.action === 'appointment_booked' && onAppointmentBooked) {
+        onAppointmentBooked(res.appointment);
+      }
       if (sessionTypeRef.current === 'call') {
         speakText(res.reply);
       }
@@ -992,7 +1011,7 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
         <div className="bg-slate-900/60 px-4 py-2 border-b border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>AI Receptionist Simulator Ready</span>
+            <span>{statusLabel || 'AI Receptionist Simulator Ready'}</span>
           </div>
           <span className="text-slate-400 text-[10px]">Voice Call & Text Chat</span>
         </div>
@@ -1027,9 +1046,9 @@ export default function VoiceAgentSimulator({ mode = 'embedded', onCallEnded }) 
               <Bot size={26} className="animate-pulse" />
             </div>
             <div className="max-w-xs space-y-1">
-              <h3 className="text-base font-semibold text-white">Test Neerja AI Receptionist</h3>
+              <h3 className="text-base font-semibold text-white">{title || 'Test Neerja AI Receptionist'}</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Experience real-time patient interactions. Choose your preferred testing method below:
+                {subtitle || 'Experience real-time patient interactions. Choose your preferred testing method below:'}
               </p>
             </div>
 

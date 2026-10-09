@@ -19,10 +19,91 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dentalflow_jwt_secret_change_in_production_' + Date.now();
+const isProduction = process.env.NODE_ENV === 'production';
+let JWT_SECRET = process.env.JWT_SECRET;
+
+if (isProduction) {
+  if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET.includes('change_in_production')) {
+    throw new Error(
+      'FATAL: A strong, persistent JWT_SECRET (at least 32 characters) must be configured in environment variables for production.'
+    );
+  }
+} else {
+  if (!JWT_SECRET) {
+    const devSecretFile = path.join(__dirname, '..', '.jwt_secret_dev');
+    try {
+      if (fs.existsSync(devSecretFile)) {
+        JWT_SECRET = fs.readFileSync(devSecretFile, 'utf8').trim();
+      } else {
+        JWT_SECRET = 'dentalflow_dev_secret_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        fs.writeFileSync(devSecretFile, JWT_SECRET, 'utf8');
+      }
+    } catch {
+      JWT_SECRET = 'dentalflow_dev_static_secret_development_only_12345';
+    }
+  }
+}
 const JWT_EXPIRES = '24h';
 
 const PRACTICE_ID = 1; // single-practice Phase 1 scope
+
+// ===================== RATE LIMITING =====================
+
+const loginAttempts = new Map(); // ip_username -> { count, resetAt }
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+function loginRateLimiter(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const username = (req.body.username || '').toLowerCase().trim();
+  const key = `${ip}_${username}`;
+  const now = Date.now();
+
+  const record = loginAttempts.get(key);
+  if (record) {
+    if (now < record.resetAt) {
+      if (record.count >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        const retryAfterSeconds = Math.ceil((record.resetAt - now) / 1000);
+        res.set('Retry-After', String(retryAfterSeconds));
+        return res.status(429).json({
+          error: `Too many failed login attempts. Please try again in ${Math.ceil(retryAfterSeconds / 60)} minutes.`,
+          retryAfter: retryAfterSeconds
+        });
+      }
+    } else {
+      loginAttempts.delete(key);
+    }
+  }
+  next();
+}
+
+function recordLoginFailure(req) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const username = (req.body.username || '').toLowerCase().trim();
+  const key = `${ip}_${username}`;
+  const now = Date.now();
+
+  const record = loginAttempts.get(key);
+  if (!record || now >= record.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_LOCKOUT_MS });
+  } else {
+    record.count += 1;
+  }
+}
+
+function clearLoginAttempts(req) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const username = (req.body.username || '').toLowerCase().trim();
+  loginAttempts.delete(`${ip}_${username}`);
+}
+
+// Clean up stale rate limit entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of loginAttempts.entries()) {
+    if (now >= record.resetAt) loginAttempts.delete(key);
+  }
+}, 15 * 60 * 1000);
 
 // ===================== AUTH MIDDLEWARE =====================
 
@@ -66,50 +147,93 @@ function patientOnly(req, res, next) {
   next();
 }
 
+// Optional auth middleware for endpoints that behave differently when authenticated
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.slice(7);
+      req.user = jwt.verify(token, JWT_SECRET);
+    } catch {
+      // ignore invalid optional token
+    }
+  }
+  next();
+}
+
 // ===================== AUTH ENDPOINTS =====================
 
-app.post('/api/auth/register', async (req, res) => {
+// Public self-registration (Patients only; creates their own patient record)
+app.post('/api/auth/register', optionalAuth, async (req, res) => {
   try {
-    const { username, password, role, patient_id, display_name } = req.body;
-    if (!username || !password || !role || !display_name) {
-      return res.status(400).json({ error: 'Username, password, role, and display name are required' });
+    const { username, password, role, patient_id, display_name, first_name, last_name, phone, email } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
     }
-    if (!['staff', 'patient'].includes(role)) {
-      return res.status(400).json({ error: 'Invalid role' });
+
+    // 1. Disable public staff registration
+    if (role === 'staff') {
+      if (!req.user || req.user.role !== 'staff') {
+        return res.status(403).json({
+          error: 'Public staff registration is disabled. Staff accounts must be provisioned by an authorized administrator.'
+        });
+      }
+    }
+
+    // 2. Prevent arbitrary patient ID linking during public registration
+    if (patient_id) {
+      if (!req.user || req.user.role !== 'staff') {
+        return res.status(400).json({
+          error: 'Specifying arbitrary patient_id during public registration is not permitted.'
+        });
+      }
     }
 
     // Check username uniqueness
-    const existing = db.prepare('SELECT id FROM user_accounts WHERE username = ?').get(username.toLowerCase());
+    const existing = db.prepare('SELECT id FROM user_accounts WHERE username = ?').get(username.toLowerCase().trim());
     if (existing) {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
-    // For patient accounts, verify patient_id exists
-    if (role === 'patient') {
-      if (!patient_id) {
-        return res.status(400).json({ error: 'Patient ID is required for patient accounts' });
-      }
-      const patient = db.prepare('SELECT id FROM patients WHERE id = ? AND practice_id = ?').get(patient_id, PRACTICE_ID);
-      if (!patient) {
-        return res.status(404).json({ error: 'Patient record not found' });
-      }
-      // Check if patient already has an account
-      const existingPatientAccount = db.prepare('SELECT id FROM user_accounts WHERE patient_id = ?').get(patient_id);
-      if (existingPatientAccount) {
-        return res.status(409).json({ error: 'This patient already has an account' });
-      }
+    const password_hash = await bcrypt.hash(password, 12);
+    let linkedPatientId = null;
+
+    if (role === 'staff' && req.user && req.user.role === 'staff') {
+      // Authorized staff creation
+      const info = db.prepare(
+        `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+         VALUES (?, ?, ?, 'staff', NULL, NULL, ?)`
+      ).run(PRACTICE_ID, username.toLowerCase().trim(), password_hash, display_name || username);
+
+      return res.status(201).json({
+        ok: true,
+        user: { id: info.lastInsertRowid, username: username.toLowerCase().trim(), role: 'staff', display_name: display_name || username }
+      });
     }
 
-    const password_hash = await bcrypt.hash(password, 12);
-    const info = db.prepare(
-      `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(PRACTICE_ID, username.toLowerCase(), password_hash, role, null, role === 'patient' ? patient_id : null, display_name);
+    // Patient registration: automatically create their own patient record
+    const fullName = [first_name, last_name].filter(Boolean).join(' ') || display_name || username;
+    const registerPatientTx = db.transaction(() => {
+      const pInfo = db.prepare(`
+        INSERT INTO patients (practice_id, name, first_name, last_name, phone, email, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'active')
+      `).run(PRACTICE_ID, fullName, first_name || null, last_name || null, phone || null, email || null);
 
-    const account = db.prepare('SELECT * FROM user_accounts WHERE id = ?').get(info.lastInsertRowid);
+      linkedPatientId = pInfo.lastInsertRowid;
+
+      const accInfo = db.prepare(
+        `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+         VALUES (?, ?, ?, 'patient', NULL, ?, ?)`
+      ).run(PRACTICE_ID, username.toLowerCase().trim(), password_hash, linkedPatientId, fullName);
+
+      return accInfo.lastInsertRowid;
+    });
+
+    const accountId = registerPatientTx();
+    const account = db.prepare('SELECT * FROM user_accounts WHERE id = ?').get(accountId);
     const token = generateToken(account);
 
     res.status(201).json({
@@ -128,24 +252,120 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+// Authorized staff account creation (Staff only)
+app.post('/api/auth/staff-accounts', authMiddleware, staffOnly, async (req, res) => {
+  try {
+    const { username, password, display_name, email } = req.body;
+    if (!username || !password || !display_name) {
+      return res.status(400).json({ error: 'Username, password, and display name are required' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+
+    const existing = db.prepare('SELECT id FROM user_accounts WHERE username = ?').get(username.toLowerCase().trim());
+    if (existing) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+
+    const password_hash = await bcrypt.hash(password, 12);
+    const staffUser = db.prepare('INSERT INTO users (practice_id, name, role, email) VALUES (?, ?, ?, ?)').run(
+      PRACTICE_ID, display_name, 'staff', email || null
+    );
+
+    const info = db.prepare(
+      `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+       VALUES (?, ?, ?, 'staff', ?, NULL, ?)`
+    ).run(PRACTICE_ID, username.toLowerCase().trim(), password_hash, staffUser.lastInsertRowid, display_name);
+
+    res.status(201).json({
+      ok: true,
+      user: {
+        id: info.lastInsertRowid,
+        username: username.toLowerCase().trim(),
+        role: 'staff',
+        display_name
+      }
+    });
+  } catch (err) {
+    console.error('Staff account creation error:', err);
+    res.status(500).json({ error: 'Failed to create staff account' });
+  }
+});
+
+// Authorized patient account provisioning for verified patients (Staff only)
+app.post('/api/auth/patient-accounts', authMiddleware, staffOnly, async (req, res) => {
+  try {
+    const { patient_id, username, password, display_name } = req.body;
+    if (!patient_id || !username || !password) {
+      return res.status(400).json({ error: 'patient_id, username, and password are required' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+
+    // Verify patient exists
+    const patient = db.prepare('SELECT id, name FROM patients WHERE id = ? AND practice_id = ?').get(patient_id, PRACTICE_ID);
+    if (!patient) {
+      return res.status(404).json({ error: 'Verified patient record not found' });
+    }
+
+    // Check if patient already has an account
+    const existingPatientAcc = db.prepare('SELECT id FROM user_accounts WHERE patient_id = ?').get(patient_id);
+    if (existingPatientAcc) {
+      return res.status(409).json({ error: 'This patient already has an active portal account' });
+    }
+
+    const existingUser = db.prepare('SELECT id FROM user_accounts WHERE username = ?').get(username.toLowerCase().trim());
+    if (existingUser) {
+      return res.status(409).json({ error: 'Username already in use' });
+    }
+
+    const password_hash = await bcrypt.hash(password, 12);
+    const info = db.prepare(
+      `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+       VALUES (?, ?, ?, 'patient', NULL, ?, ?)`
+    ).run(PRACTICE_ID, username.toLowerCase().trim(), password_hash, patient_id, display_name || patient.name);
+
+    res.status(201).json({
+      ok: true,
+      user: {
+        id: info.lastInsertRowid,
+        username: username.toLowerCase().trim(),
+        role: 'patient',
+        patient_id,
+        display_name: display_name || patient.name
+      }
+    });
+  } catch (err) {
+    console.error('Patient account provisioning error:', err);
+    res.status(500).json({ error: 'Failed to provision patient account' });
+  }
+});
+
+app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const account = db.prepare('SELECT * FROM user_accounts WHERE username = ?').get(username.toLowerCase());
+    const account = db.prepare('SELECT * FROM user_accounts WHERE username = ?').get(username.toLowerCase().trim());
     if (!account) {
+      recordLoginFailure(req);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const valid = await bcrypt.compare(password, account.password_hash);
     if (!valid) {
+      recordLoginFailure(req);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Update last login
+    // Login succeeded: clear rate limiter
+    clearLoginAttempts(req);
+
+    // Update last login timestamp
     db.prepare('UPDATE user_accounts SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(account.id);
 
     const token = generateToken(account);
@@ -172,9 +392,27 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 });
 
 // ===================== SEED DEFAULT ACCOUNTS =====================
-// Create default staff account if none exists
+// In production, demo accounts are never automatically seeded
 (async function seedDefaultAccounts() {
   try {
+    if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_DEMO_SEEDING) {
+      if (process.env.INITIAL_ADMIN_USERNAME && process.env.INITIAL_ADMIN_PASSWORD) {
+        const staffCount = db.prepare('SELECT COUNT(*) as c FROM user_accounts WHERE role = ?').get('staff').c;
+        if (staffCount === 0) {
+          const hash = await bcrypt.hash(process.env.INITIAL_ADMIN_PASSWORD, 12);
+          db.prepare(
+            `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+             VALUES (?, ?, ?, 'staff', 1, NULL, 'System Administrator')`
+          ).run(PRACTICE_ID, process.env.INITIAL_ADMIN_USERNAME.toLowerCase().trim(), hash);
+          console.log(`[Auth] Initial production staff administrator created: ${process.env.INITIAL_ADMIN_USERNAME}`);
+        }
+      } else {
+        console.log('[Auth] Production mode active: Demo accounts are not automatically seeded.');
+      }
+      return;
+    }
+
+    // Development demo account auto-seeding
     const staffCount = db.prepare('SELECT COUNT(*) as c FROM user_accounts WHERE role = ?').get('staff').c;
     if (staffCount === 0) {
       const hash = await bcrypt.hash('admin123', 12);
@@ -182,10 +420,9 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
         `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(PRACTICE_ID, 'admin', hash, 'staff', 1, null, 'Dr. Sarah Mitchell');
-      console.log('[Auth] Default staff account created: admin / admin123');
+      console.log('[Auth] Development staff account initialized: admin');
     }
 
-    // Create default patient accounts for existing patients
     const patientCount = db.prepare('SELECT COUNT(*) as c FROM user_accounts WHERE role = ?').get('patient').c;
     if (patientCount === 0) {
       const patients = db.prepare('SELECT id, name, email FROM patients WHERE practice_id = ? LIMIT 3').all(PRACTICE_ID);
@@ -197,8 +434,7 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
             `INSERT INTO user_accounts (practice_id, username, password_hash, role, patient_id, display_name)
              VALUES (?, ?, ?, ?, ?, ?)`
           ).run(PRACTICE_ID, username, hash, 'patient', p.id, p.name);
-          console.log(`[Auth] Default patient account created: ${username} / patient123`);
-        } catch(e) { /* skip if username conflict */ }
+        } catch { /* skip if conflict */ }
       }
     }
   } catch(e) {
@@ -416,51 +652,155 @@ app.get('/api/patient/available-slots', authMiddleware, patientOnly, (req, res) 
   res.json(slots);
 });
 
-// Patient: book appointment
+// ===================== APPOINTMENT CATALOG & TRANSACTIONAL BOOKING =====================
+
+const APPOINTMENT_CATALOG = {
+  'hygiene': { name: 'Dental Hygiene & Cleaning', duration: 30, fee: 120 },
+  'checkup': { name: 'Routine Check-up & Exam', duration: 30, fee: 150 },
+  'whitening': { name: 'Teeth Whitening', duration: 60, fee: 350 },
+  'ortho': { name: 'Orthodontic / Invisalign Consult', duration: 45, fee: 220 },
+  'emergency': { name: 'Emergency Dental Consultation', duration: 45, fee: 180 },
+  'extraction': { name: 'Extraction', duration: 45, fee: 200 },
+  'filling': { name: 'Cavity Filling / Composite Resin', duration: 45, fee: 180 },
+  'root_canal': { name: 'Root Canal Treatment', duration: 60, fee: 400 },
+};
+
+function resolveAppointmentType(inputName) {
+  if (!inputName) return { name: 'Routine Check-up', duration: 30, fee: 150 };
+  const lower = String(inputName).toLowerCase().trim();
+  for (const [key, val] of Object.entries(APPOINTMENT_CATALOG)) {
+    if (val.name.toLowerCase() === lower || key === lower || lower.includes(key)) {
+      return val;
+    }
+  }
+  return { name: String(inputName).slice(0, 80), duration: 30, fee: 150 };
+}
+
+function executeAppointmentBooking(data) {
+  const {
+    practiceId,
+    patientId,
+    practitionerId,
+    startTimeStr,
+    durationMinutes,
+    reason,
+    fee,
+    bookedByAi = 0
+  } = data;
+
+  const startDate = new Date(startTimeStr);
+  if (isNaN(startDate.getTime())) {
+    const err = new Error('Invalid start_time format');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (startDate.getTime() <= Date.now()) {
+    const err = new Error('Appointments must be booked for a future date and time');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Calculate effective end time BEFORE conflict check
+  const duration = Math.max(10, Math.min(240, Number(durationMinutes) || 30));
+  const endDate = new Date(startDate.getTime() + duration * 60000);
+  const isoStart = startDate.toISOString().slice(0, 19);
+  const isoEnd = endDate.toISOString().slice(0, 19);
+
+  // Validate practitioner exists
+  const pract = db.prepare('SELECT id, name FROM practitioners WHERE id = ? AND practice_id = ?').get(practitionerId, practiceId);
+  if (!pract) {
+    const err = new Error('Practitioner not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Validate practitioner availability rules
+  const dayOfWeek = startDate.getDay();
+  const startHM = startDate.toTimeString().slice(0, 5);
+  const endHM = endDate.toTimeString().slice(0, 5);
+
+  const avail = db.prepare('SELECT * FROM practitioner_availability WHERE practitioner_id = ? AND day_of_week = ?').get(practitionerId, dayOfWeek);
+  if (avail) {
+    if (startHM < avail.start_time || endHM > avail.end_time) {
+      const err = new Error(`Practitioner is only available between ${avail.start_time} and ${avail.end_time} on this day.`);
+      err.statusCode = 400;
+      throw err;
+    }
+  } else if (dayOfWeek === 0) {
+    const err = new Error('The clinic is closed on Sundays.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Transactional overlap check and creation
+  const bookTx = db.transaction(() => {
+    // Conflict condition: any booked or completed appointment overlapping [isoStart, isoEnd)
+    const conflict = db.prepare(`
+      SELECT id, start_time, end_time, reason FROM appointments
+      WHERE practitioner_id = ? AND practice_id = ?
+        AND status IN ('booked', 'completed')
+        AND start_time < ?
+        AND COALESCE(NULLIF(end_time, ''), datetime(start_time, '+30 minutes')) > ?
+      LIMIT 1
+    `).get(practitionerId, practiceId, isoEnd, isoStart);
+
+    if (conflict) {
+      const err = new Error('APPOINTMENT_CONFLICT');
+      err.statusCode = 409;
+      err.conflict = conflict;
+      throw err;
+    }
+
+    const info = db.prepare(`
+      INSERT INTO appointments (practice_id, patient_id, practitioner_id, start_time, end_time, status, reason, fee, booked_by_ai)
+      VALUES (?, ?, ?, ?, ?, 'booked', ?, ?, ?)
+    `).run(practiceId, patientId, practitionerId, isoStart, isoEnd, reason, fee, bookedByAi);
+
+    return { id: info.lastInsertRowid, start_time: isoStart, end_time: isoEnd, fee };
+  });
+
+  return bookTx();
+}
+
+// Patient: book appointment with server-validated fees, durations, and transactional conflict check
 app.post('/api/patient/appointments', authMiddleware, patientOnly, (req, res) => {
   const patientId = req.user.patient_id;
-  const { practitioner_id, start_time, end_time, reason, appointment_type, fee } = req.body;
+  const { practitioner_id, start_time, reason, appointment_type } = req.body;
 
   if (!practitioner_id || !start_time) {
-    return res.status(400).json({ error: 'Practitioner and time are required' });
+    return res.status(400).json({ error: 'Practitioner and appointment time are required' });
   }
 
-  // Verify practitioner exists
-  const practitioner = db.prepare('SELECT * FROM practitioners WHERE id = ? AND practice_id = ?').get(practitioner_id, PRACTICE_ID);
-  if (!practitioner) return res.status(404).json({ error: 'Practitioner not found' });
+  // Server-determined fee and duration — never trust client overrides for patients
+  const catalogEntry = resolveAppointmentType(appointment_type || reason);
 
-  // Server-side availability validation: check for conflicts
-  const conflict = db.prepare(`
-    SELECT id FROM appointments
-    WHERE practitioner_id = ? AND practice_id = ? AND status != 'cancelled'
-    AND start_time < ? AND end_time > ?
-  `).get(practitioner_id, PRACTICE_ID, end_time || start_time, start_time);
+  try {
+    const result = executeAppointmentBooking({
+      practiceId: PRACTICE_ID,
+      patientId,
+      practitionerId: Number(practitioner_id),
+      startTimeStr: start_time,
+      durationMinutes: catalogEntry.duration,
+      reason: catalogEntry.name,
+      fee: catalogEntry.fee,
+      bookedByAi: 0
+    });
 
-  if (conflict) {
-    return res.status(409).json({ error: 'This time slot is no longer available. Please choose another time.' });
+    res.status(201).json({
+      id: result.id,
+      message: 'Appointment booked successfully',
+      start_time: result.start_time,
+      end_time: result.end_time,
+      fee: result.fee
+    });
+  } catch (err) {
+    if (err.statusCode === 409 || err.message === 'APPOINTMENT_CONFLICT') {
+      return res.status(409).json({
+        error: 'This time slot overlaps with an existing appointment for the selected practitioner. Please choose another time.'
+      });
+    }
+    return res.status(err.statusCode || 400).json({ error: err.message || 'Booking failed' });
   }
-
-  // Check slot is not in the past
-  if (new Date(start_time) <= new Date()) {
-    return res.status(400).json({ error: 'Cannot book an appointment in the past' });
-  }
-
-  const effectiveFee = fee || 150;
-  const effectiveEnd = end_time || (() => {
-    const d = new Date(start_time);
-    d.setMinutes(d.getMinutes() + 30);
-    return d.toISOString().slice(0, 19);
-  })();
-
-  const info = db.prepare(
-    `INSERT INTO appointments (practice_id, patient_id, practitioner_id, start_time, end_time, status, reason, fee)
-     VALUES (?, ?, ?, ?, ?, 'booked', ?, ?)`
-  ).run(PRACTICE_ID, patientId, practitioner_id, start_time, effectiveEnd, reason || appointment_type || 'Check-up', effectiveFee);
-
-  res.status(201).json({
-    id: info.lastInsertRowid,
-    message: 'Appointment booked successfully'
-  });
 });
 
 // Patient: get treatment plans
@@ -584,17 +924,46 @@ app.get('/api/appointments', authMiddleware, staffOnly, (req, res) => {
 app.post('/api/appointments', authMiddleware, staffOnly, (req, res) => {
   const { patient_id, practitioner_id, start_time, end_time, reason, fee } = req.body;
 
-  // Validate fee: required, must be a finite number >= 0
+  if (!patient_id || !practitioner_id || !start_time) {
+    return res.status(400).json({ error: 'patient_id, practitioner_id, and start_time are required' });
+  }
+
+  // Validate fee: must be a non-negative finite number
   const parsedFee = Number(fee);
   if (fee === undefined || fee === null || fee === '' || !Number.isFinite(parsedFee) || parsedFee < 0) {
     return res.status(400).json({ error: 'fee is required and must be a non-negative number' });
   }
 
-  const info = db.prepare(
-    `INSERT INTO appointments (practice_id, patient_id, practitioner_id, start_time, end_time, status, reason, fee)
-     VALUES (?, ?, ?, ?, ?, 'booked', ?, ?)`
-  ).run(PRACTICE_ID, patient_id, practitioner_id, start_time, end_time, reason || null, parsedFee);
-  res.status(201).json({ id: info.lastInsertRowid });
+  // Calculate duration if end_time is provided, otherwise fallback to catalog or 30 min
+  let durationMinutes = 30;
+  if (end_time && start_time) {
+    const diff = Math.round((new Date(end_time) - new Date(start_time)) / 60000);
+    if (diff > 0 && diff <= 360) durationMinutes = diff;
+  } else {
+    durationMinutes = resolveAppointmentType(reason).duration;
+  }
+
+  try {
+    const result = executeAppointmentBooking({
+      practiceId: PRACTICE_ID,
+      patientId: Number(patient_id),
+      practitionerId: Number(practitioner_id),
+      startTimeStr: start_time,
+      durationMinutes,
+      reason: reason || 'Dental Consultation',
+      fee: parsedFee,
+      bookedByAi: 0
+    });
+
+    res.status(201).json({ id: result.id, start_time: result.start_time, end_time: result.end_time, fee: result.fee });
+  } catch (err) {
+    if (err.statusCode === 409 || err.message === 'APPOINTMENT_CONFLICT') {
+      return res.status(409).json({
+        error: 'This time slot overlaps with an existing appointment for the selected practitioner. Please choose another time.'
+      });
+    }
+    return res.status(err.statusCode || 400).json({ error: err.message || 'Failed to book appointment' });
+  }
 });
 
 app.patch('/api/appointments/:id', authMiddleware, staffOnly, (req, res) => {
@@ -976,49 +1345,183 @@ app.patch('/api/follow-up-messages/:id', authMiddleware, staffOnly, (req, res) =
       .run(message_text, req.params.id, PRACTICE_ID);
   }
   if (status) {
+    if (status === 'sent' || status === 'approved' || status === 'sending') {
+      return res.status(400).json({ error: 'Directly transitioning to sent/sending/approved via PATCH is not permitted. Use the approve and send workflow.' });
+    }
     db.prepare('UPDATE follow_up_messages SET status = ? WHERE id = ? AND practice_id = ?')
       .run(status, req.params.id, PRACTICE_ID);
   }
   res.json({ ok: true });
 });
 
-// Approve & Send follow-up message
-app.post('/api/follow-up-messages/:id/send', authMiddleware, staffOnly, (req, res) => {
-  const msg = db.prepare('SELECT * FROM follow_up_messages WHERE id = ? AND practice_id = ?').get(req.params.id, PRACTICE_ID);
-  if (!msg) return res.status(404).json({ error: 'Message not found' });
+// Approve & Send follow-up message (Real provider integration only, no fake success)
+app.post('/api/follow-up-messages/:id/send', authMiddleware, staffOnly, async (req, res) => {
+  try {
+    const msg = db.prepare('SELECT * FROM follow_up_messages WHERE id = ? AND practice_id = ?').get(req.params.id, PRACTICE_ID);
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
 
-  if (msg.status === 'sent') {
-    return res.status(400).json({ error: 'Message already sent' });
+    if (msg.status === 'sent') {
+      return res.status(400).json({ error: 'Message has already been sent' });
+    }
+    if (msg.status === 'cancelled') {
+      return res.status(400).json({ error: 'Cannot send a dismissed or cancelled message' });
+    }
+
+    // Atomic status transition to 'sending' to lock message and prevent duplicate sends
+    const updateLock = db.prepare(`
+      UPDATE follow_up_messages
+      SET status = 'sending', staff_approved_by = ?, approved_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND practice_id = ? AND status IN ('pending_approval', 'failed')
+    `).run(req.user.id, msg.id, PRACTICE_ID);
+
+    if (updateLock.changes === 0) {
+      return res.status(409).json({
+        error: `Message cannot be sent from current state '${msg.status}'. It may already be sent or is currently being dispatched.`
+      });
+    }
+
+    // Retrieve recipient contact info
+    let recipientPhone = null;
+    let recipientEmail = null;
+
+    if (msg.patient_id) {
+      const patient = db.prepare('SELECT phone, email FROM patients WHERE id = ?').get(msg.patient_id);
+      if (patient) {
+        recipientPhone = patient.phone;
+        recipientEmail = patient.email;
+      }
+    } else if (msg.call_log_id) {
+      const callLog = db.prepare('SELECT caller_phone FROM call_logs WHERE id = ?').get(msg.call_log_id);
+      if (callLog) recipientPhone = callLog.caller_phone;
+    }
+
+    const deliveryMethod = (msg.delivery_method || 'sms').toLowerCase();
+
+    // EMAIL DISPATCH VIA SENDGRID
+    if (deliveryMethod === 'email') {
+      const apiKey = process.env.SENDGRID_API_KEY;
+      const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.FROM_EMAIL;
+
+      if (!apiKey || !fromEmail) {
+        const errorMsg = 'SendGrid email provider is not configured. Environment variables SENDGRID_API_KEY and SENDGRID_FROM_EMAIL are required.';
+        db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(errorMsg, msg.id);
+        return res.status(503).json({
+          error: 'Email provider not configured',
+          details: errorMsg
+        });
+      }
+
+      if (!recipientEmail) {
+        const errorMsg = 'Failed: Recipient has no valid email address on file.';
+        db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(errorMsg, msg.id);
+        return res.status(400).json({ error: errorMsg });
+      }
+
+      try {
+        const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            personalizations: [{ to: [{ email: recipientEmail }] }],
+            from: { email: fromEmail },
+            subject: 'DentalFlow Practice Notification',
+            content: [{ type: 'text/plain', value: msg.message_text }]
+          })
+        });
+
+        if (sgRes.status >= 200 && sgRes.status < 300) {
+          const resultStr = `Delivered via SendGrid (Status: ${sgRes.status})`;
+          db.prepare(`UPDATE follow_up_messages SET status = 'sent', delivery_result = ?, sent_at = CURRENT_TIMESTAMP WHERE id = ?`).run(resultStr, msg.id);
+          return res.json({
+            ok: true,
+            status: 'sent',
+            message: 'Follow-up email dispatched successfully via SendGrid.'
+          });
+        } else {
+          const errBody = await sgRes.text();
+          const resultStr = `SendGrid error (${sgRes.status}): ${errBody.slice(0, 200)}`;
+          db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(resultStr, msg.id);
+          return res.status(502).json({
+            error: 'Provider delivery failed',
+            details: resultStr
+          });
+        }
+      } catch (networkErr) {
+        const resultStr = `SendGrid network error: ${networkErr.message}`;
+        db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(resultStr, msg.id);
+        return res.status(502).json({ error: 'Failed to contact email provider', details: resultStr });
+      }
+    }
+
+    // SMS OR WHATSAPP DISPATCH VIA TWILIO
+    const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+    const twilioFrom = process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_FROM;
+
+    if (!twilioSid || !twilioAuthToken || !twilioFrom) {
+      const errorMsg = 'Twilio SMS provider is not configured. Environment variables TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER are required.';
+      db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(errorMsg, msg.id);
+      return res.status(503).json({
+        error: 'SMS provider not configured',
+        details: errorMsg
+      });
+    }
+
+    if (!recipientPhone) {
+      const errorMsg = 'Failed: Recipient has no valid phone number on file.';
+      db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(errorMsg, msg.id);
+      return res.status(400).json({ error: errorMsg });
+    }
+
+    try {
+      const isWhatsApp = deliveryMethod === 'whatsapp';
+      const fromNumber = isWhatsApp ? `whatsapp:${twilioFrom}` : twilioFrom;
+      const toNumber = isWhatsApp ? `whatsapp:${recipientPhone}` : recipientPhone;
+
+      const params = new URLSearchParams();
+      params.append('From', fromNumber);
+      params.append('To', toNumber);
+      params.append('Body', msg.message_text);
+
+      const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${Buffer.from(`${twilioSid}:${twilioAuthToken}`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      });
+
+      const responseData = await twilioRes.json();
+      if (twilioRes.status >= 200 && twilioRes.status < 300 && responseData.sid) {
+        const resultStr = `Dispatched via Twilio (SID: ${responseData.sid}, Status: ${responseData.status})`;
+        db.prepare(`UPDATE follow_up_messages SET status = 'sent', delivery_result = ?, sent_at = CURRENT_TIMESTAMP WHERE id = ?`).run(resultStr, msg.id);
+        return res.json({
+          ok: true,
+          status: 'sent',
+          message: `Follow-up message successfully dispatched via Twilio (${responseData.sid}).`
+        });
+      } else {
+        const errDetail = responseData.message || JSON.stringify(responseData).slice(0, 200);
+        const resultStr = `Twilio error (${twilioRes.status}): ${errDetail}`;
+        db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(resultStr, msg.id);
+        return res.status(502).json({
+          error: 'Provider delivery failed',
+          details: resultStr
+        });
+      }
+    } catch (networkErr) {
+      const resultStr = `Twilio network error: ${networkErr.message}`;
+      db.prepare(`UPDATE follow_up_messages SET status = 'failed', delivery_result = ? WHERE id = ?`).run(resultStr, msg.id);
+      return res.status(502).json({ error: 'Failed to contact SMS provider', details: resultStr });
+    }
+  } catch (err) {
+    console.error('Follow-up delivery handler error:', err);
+    res.status(500).json({ error: 'Internal error processing message delivery' });
   }
-
-  // Update to approved
-  db.prepare(`UPDATE follow_up_messages SET status = 'approved', staff_approved_by = ?, approved_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .run(req.user.id, msg.id);
-
-  // Attempt delivery
-  const smsProvider = process.env.TWILIO_ACCOUNT_SID || process.env.SMS_PROVIDER;
-  const emailProvider = process.env.SENDGRID_API_KEY || process.env.EMAIL_PROVIDER;
-
-  if (!smsProvider && !emailProvider) {
-    // In local/demo mode: simulate successful delivery
-    db.prepare(`UPDATE follow_up_messages SET status = 'sent', delivery_result = ?, sent_at = CURRENT_TIMESTAMP WHERE id = ?`)
-      .run(`Delivered via ${msg.delivery_method ? msg.delivery_method.toUpperCase() : 'SMS'}`, msg.id);
-
-    return res.json({
-      ok: true,
-      status: 'sent',
-      message: `Message approved and successfully sent via ${(msg.delivery_method || 'sms').toUpperCase()}!`
-    });
-  }
-
-  // If live provider configured, dispatch and mark sent
-  db.prepare(`UPDATE follow_up_messages SET status = 'sent', delivery_result = 'Dispatched via provider', sent_at = CURRENT_TIMESTAMP WHERE id = ?`).run(msg.id);
-
-  res.json({
-    ok: true,
-    status: 'sent',
-    message: 'Message approved and dispatched via messaging provider'
-  });
 });
 
 app.post('/api/follow-up-messages/:id/cancel', authMiddleware, staffOnly, (req, res) => {
@@ -1082,20 +1585,32 @@ app.get('/api/call-logs', authMiddleware, staffOnly, (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/call-logs', authMiddleware, staffOnly, (req, res) => {
-  const { caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, patient_id, appointment_id } = req.body;
+app.get('/api/call-logs/:id', authMiddleware, staffOnly, (req, res) => {
+  const row = db.prepare(
+    `SELECT cl.*, p.name as patient_name FROM call_logs cl
+     LEFT JOIN patients p ON p.id = cl.patient_id
+     WHERE cl.id = ? AND cl.practice_id = ?`
+  ).get(req.params.id, PRACTICE_ID);
+  if (!row) return res.status(404).json({ error: 'Call log not found' });
+  res.json(row);
+});
+
+app.post('/api/call-logs', authMiddleware, (req, res) => {
+  const { caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, appointment_id } = req.body;
+  const effectivePatientId = req.user.role === 'patient' ? req.user.patient_id : (req.body.patient_id || null);
+  const effectiveCallerName = caller_name || (req.user.role === 'patient' ? req.user.display_name : 'Caller');
   const info = db.prepare(
     `INSERT INTO call_logs (practice_id, patient_id, caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, appointment_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(PRACTICE_ID, patient_id || null, caller_name, caller_name_spelled || null, caller_phone || null, caller_email || null, call_type || 'inbound_ai', is_after_hours || 0, duration_seconds || null, intent || 'general_inquiry', ai_summary || null, transcript || null, sentiment || 'neutral', status || 'open', is_won_back || 0, appointment_id || null);
+  ).run(PRACTICE_ID, effectivePatientId, effectiveCallerName, caller_name_spelled || null, caller_phone || null, caller_email || null, call_type || 'inbound_ai', is_after_hours || 0, duration_seconds || null, intent || 'general_inquiry', ai_summary || null, transcript || null, sentiment || 'neutral', status || 'open', is_won_back || 0, appointment_id || null);
 
   // Auto-escalate clinical emergencies and patient complaints
   if (intent === 'clinical_emergency' || intent === 'patient_complaint') {
     const severity = intent === 'clinical_emergency' ? 'critical' : 'high';
     const alertType = intent === 'clinical_emergency' ? 'clinical_emergency' : 'patient_complaint';
     const title = intent === 'clinical_emergency'
-      ? `Clinical Emergency – ${caller_name || 'Unknown'}`
-      : `Patient Complaint – ${caller_name || 'Unknown'}`;
+      ? `Clinical Emergency – ${effectiveCallerName || 'Unknown'}`
+      : `Patient Complaint – ${effectiveCallerName || 'Unknown'}`;
     db.prepare(
       `INSERT INTO alerts (practice_id, type, severity, title, message, status, call_log_id, escalation_type)
        VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`
@@ -1136,7 +1651,7 @@ function executeBooking(bookingData, practiceId = PRACTICE_ID) {
     throw err;
   }
 
-  // Calculate start and end time
+  // Calculate start and end time before conflict checking
   const effectiveStartTime = start_time || (() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -1144,61 +1659,96 @@ function executeBooking(bookingData, practiceId = PRACTICE_ID) {
     return d.toISOString().slice(0, 19);
   })();
 
-  // Check time slot availability
-  if (effectiveStartTime) {
-    const conflict = db.prepare(
-      `SELECT id FROM appointments WHERE practice_id = ? AND practitioner_id = ? AND start_time = ? AND status != 'cancelled'`
-    ).get(practiceId, practitioner.id, effectiveStartTime);
+  const apptType = resolveAppointmentType(reason);
+  const durationMinutes = apptType.duration || 45;
+  const startDate = new Date(effectiveStartTime);
+  const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+  const end_time = endDate.toISOString().slice(0, 19);
+
+  // Validate practitioner availability / working hours if available
+  const dayOfWeek = startDate.getDay();
+  const startHM = startDate.toTimeString().slice(0, 5);
+  const endHM = endDate.toTimeString().slice(0, 5);
+  const avail = db.prepare('SELECT * FROM practitioner_availability WHERE practitioner_id = ? AND day_of_week = ?').get(practitioner.id, dayOfWeek);
+  if (avail && (startHM < avail.start_time || endHM > avail.end_time)) {
+    const err = new Error(`Practitioner is only available between ${avail.start_time} and ${avail.end_time} on this day.`);
+    err.status = 400;
+    throw err;
+  }
+
+  // Transactional conflict check & booking creation
+  const parsedFee = Number(fee) || apptType.fee || 150;
+  const bookingTx = db.transaction(() => {
+    // Interval overlap conflict check
+    const conflict = db.prepare(`
+      SELECT id FROM appointments
+      WHERE practice_id = ? AND practitioner_id = ?
+        AND status IN ('booked', 'completed')
+        AND start_time < ?
+        AND COALESCE(NULLIF(end_time, ''), datetime(start_time, '+30 minutes')) > ?
+      LIMIT 1
+    `).get(practiceId, practitioner.id, end_time, effectiveStartTime);
+
     if (conflict) {
-      const err = new Error('Time slot not available');
+      const err = new Error('Time slot not available due to an overlapping appointment');
       err.conflict_id = conflict.id;
       err.status = 409;
       throw err;
     }
-  }
 
-  // Find or create patient
-  let patient = null;
-  if (caller_phone) {
-    patient = db.prepare(`SELECT * FROM patients WHERE practice_id = ? AND phone = ?`).get(practiceId, caller_phone);
-  }
-  if (!patient && caller_email) {
-    patient = db.prepare(`SELECT * FROM patients WHERE practice_id = ? AND email = ?`).get(practiceId, caller_email);
-  }
-  if (!patient && caller_name) {
-    const info = db.prepare(
-      `INSERT INTO patients (practice_id, name, phone, email, status) VALUES (?, ?, ?, ?, 'active')`
-    ).run(practiceId, caller_name, caller_phone || null, caller_email || null);
-    patient = { id: info.lastInsertRowid, name: caller_name };
-  }
-  if (!patient) {
-    const defaultName = caller_name || 'New Patient';
-    const info = db.prepare(
-      `INSERT INTO patients (practice_id, name, phone, email, status) VALUES (?, ?, ?, ?, 'active')`
-    ).run(practiceId, defaultName, caller_phone || null, caller_email || null);
-    patient = { id: info.lastInsertRowid, name: defaultName };
-  }
+    // Find or create patient
+    let patient = null;
+    if (caller_phone) {
+      patient = db.prepare(`SELECT * FROM patients WHERE practice_id = ? AND phone = ?`).get(practiceId, caller_phone);
+    }
+    if (!patient && caller_email) {
+      patient = db.prepare(`SELECT * FROM patients WHERE practice_id = ? AND email = ?`).get(practiceId, caller_email);
+    }
+    if (!patient && caller_name) {
+      const info = db.prepare(
+        `INSERT INTO patients (practice_id, name, phone, email, status) VALUES (?, ?, ?, ?, 'active')`
+      ).run(practiceId, caller_name, caller_phone || null, caller_email || null);
+      patient = { id: info.lastInsertRowid, name: caller_name };
+    }
+    if (!patient) {
+      const defaultName = caller_name || 'New Patient';
+      const info = db.prepare(
+        `INSERT INTO patients (practice_id, name, phone, email, status) VALUES (?, ?, ?, ?, 'active')`
+      ).run(practiceId, defaultName, caller_phone || null, caller_email || null);
+      patient = { id: info.lastInsertRowid, name: defaultName };
+    }
 
-  const startDate = new Date(effectiveStartTime);
-  const endDate = new Date(startDate.getTime() + 45 * 60000);
-  const end_time = endDate.toISOString().slice(0, 19);
+    // Book appointment
+    const apptInfo = db.prepare(
+      `INSERT INTO appointments (practice_id, patient_id, practitioner_id, start_time, end_time, status, reason, fee, booked_by_ai, call_log_id)
+       VALUES (?, ?, ?, ?, ?, 'booked', ?, ?, 1, NULL)`
+    ).run(practiceId, patient.id, practitioner.id, effectiveStartTime, end_time, reason || apptType.name, parsedFee);
 
-  // Book appointment
-  const parsedFee = Number(fee) || 150;
-  const apptInfo = db.prepare(
-    `INSERT INTO appointments (practice_id, patient_id, practitioner_id, start_time, end_time, status, reason, fee, booked_by_ai, call_log_id)
-     VALUES (?, ?, ?, ?, ?, 'booked', ?, ?, 1, NULL)`
-  ).run(practiceId, patient.id, practitioner.id, effectiveStartTime, end_time, reason || 'Check-up', parsedFee);
+    // Create call log
+    const spelled = (caller_name || patient.name) ? (caller_name || patient.name).toUpperCase().split('').join('-').replace(/ /g, '  ') : null;
+    const clInfo = db.prepare(
+      `INSERT INTO call_logs (practice_id, patient_id, caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, appointment_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'inbound_ai', ?, ?, 'appointment_booking', ?, ?, 'positive', 'resolved', ?, ?)`
+    ).run(practiceId, patient.id, caller_name || patient.name, spelled, caller_phone || null, caller_email || null, is_after_hours || 0, null, call_summary || `AI booked ${reason || 'appointment'} with ${practitioner.name}`, call_transcript || null, is_after_hours ? 1 : 0, apptInfo.lastInsertRowid);
 
-  // Create call log
-  const spelled = (caller_name || patient.name) ? (caller_name || patient.name).toUpperCase().split('').join('-').replace(/ /g, '  ') : null;
-  const clInfo = db.prepare(
-    `INSERT INTO call_logs (practice_id, patient_id, caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, appointment_id)
-     VALUES (?, ?, ?, ?, ?, ?, 'inbound_ai', ?, ?, 'appointment_booking', ?, ?, 'positive', 'resolved', ?, ?)`
-  ).run(practiceId, patient.id, caller_name || patient.name, spelled, caller_phone || null, caller_email || null, is_after_hours || 0, null, call_summary || `AI booked ${reason || 'appointment'} with ${practitioner.name}`, call_transcript || null, is_after_hours ? 1 : 0, apptInfo.lastInsertRowid);
+    // Link call_log_id back to appointment
+    db.prepare(`UPDATE appointments SET call_log_id = ? WHERE id = ?`).run(clInfo.lastInsertRowid, apptInfo.lastInsertRowid);
 
-  // Link call_log_id back to appointment
-  db.prepare(`UPDATE appointments SET call_log_id = ? WHERE id = ?`).run(clInfo.lastInsertRowid, apptInfo.lastInsertRowid);
+    return {
+      appointment_id: apptInfo.lastInsertRowid,
+      call_log_id: clInfo.lastInsertRowid,
+      patient_id: patient.id,
+      patient_name: patient.name,
+      practitioner: practitioner.name,
+      practitioner_id: practitioner.id,
+      start_time: effectiveStartTime,
+      end_time,
+      reason: reason || apptType.name,
+      fee: parsedFee
+    };
+  });
+
+  const txResult = bookingTx();
 
   // Get settings for confirmation info
   const settings = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(practiceId);
@@ -1210,16 +1760,16 @@ function executeBooking(bookingData, practiceId = PRACTICE_ID) {
 
   return {
     ok: true,
-    appointment_id: apptInfo.lastInsertRowid,
-    call_log_id: clInfo.lastInsertRowid,
-    patient_id: patient.id,
-    patient_name: patient.name,
-    practitioner: practitioner.name,
-    practitioner_id: practitioner.id,
-    start_time: effectiveStartTime,
-    end_time,
-    reason: reason || 'Check-up',
-    fee: parsedFee,
+    appointment_id: txResult.appointment_id,
+    call_log_id: txResult.call_log_id,
+    patient_id: txResult.patient_id,
+    patient_name: txResult.patient_name,
+    practitioner: txResult.practitioner,
+    practitioner_id: txResult.practitioner_id,
+    start_time: txResult.start_time,
+    end_time: txResult.end_time,
+    reason: txResult.reason,
+    fee: txResult.fee,
     confirmations_sent: confirmations,
   };
 }
@@ -1901,11 +2451,16 @@ app.post('/api/transcribe', async (req, res) => {
 
 
 // --- AI Settings ---
-app.get('/api/ai-settings', authMiddleware, staffOnly, (req, res) => {
+app.get('/api/ai-settings', authMiddleware, (req, res) => {
   let settings = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(PRACTICE_ID);
   if (!settings) {
     db.prepare(`INSERT INTO ai_settings (practice_id) VALUES (?)`).run(PRACTICE_ID);
     settings = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(PRACTICE_ID);
+  }
+  // Sanitize secret API keys if request is from a patient
+  if (req.user && req.user.role === 'patient') {
+    const { groq_api_key, openai_api_key, ...safeSettings } = settings;
+    return res.json(safeSettings);
   }
   res.json(settings);
 });

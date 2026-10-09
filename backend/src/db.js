@@ -1,12 +1,22 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database(path.join(__dirname, '..', 'dentalflow.db'));
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'dentalflow.db');
+
+// Ensure database directory exists if custom path is provided (e.g. persistent volume mount on Render/Railway)
+const dbDir = path.dirname(path.resolve(dbPath));
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('busy_timeout = 5000');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS practices (

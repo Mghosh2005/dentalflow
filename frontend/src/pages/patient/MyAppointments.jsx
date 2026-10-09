@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+import VoiceAgentSimulator from '../../components/VoiceAgentSimulator';
 import {
   Calendar as CalendarIcon, Clock, Stethoscope, CheckCircle2, ChevronRight, ChevronLeft,
-  Sparkles, Plus, AlertCircle, ShieldCheck
+  Sparkles, Plus, AlertCircle, ShieldCheck, Bot, MessageSquare, Phone
 } from 'lucide-react';
 
 const APPOINTMENT_TYPES = [
@@ -54,10 +56,12 @@ const TIME_SLOTS = [
 ];
 
 export default function MyAppointments() {
+  const { user } = useAuth();
   const [appointments, setAppointments] = useState([]);
   const [practitioners, setPractitioners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [modalMode, setModalMode] = useState('ai'); // 'ai' | 'manual'
 
   // 4-Step Booking Wizard State
   const [step, setStep] = useState(1);
@@ -96,7 +100,8 @@ export default function MyAppointments() {
     loadData();
   }, []);
 
-  const openBooking = () => {
+  const openBooking = (initialMode = 'manual') => {
+    setModalMode(initialMode);
     setStep(1);
     setSelectedType(APPOINTMENT_TYPES[0]);
     if (practitioners.length > 0) setSelectedPractitioner(practitioners[0]);
@@ -150,7 +155,7 @@ export default function MyAppointments() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      {/* Header with New Booking CTA */}
+      {/* Header with Booking Options */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-teal-600">Patient Scheduling</span>
@@ -158,16 +163,65 @@ export default function MyAppointments() {
             My Appointments
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Manage your booked dental consultations and schedule new appointments in 4 easy steps.
+            Manage your booked dental consultations and schedule new appointments in 4 easy steps or with Neerja AI.
           </p>
         </div>
-        <button
-          onClick={openBooking}
-          className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white px-5 py-3 rounded-2xl font-semibold text-sm shadow-md shadow-teal-600/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-        >
-          <Plus size={18} />
-          <span>Book an Appointment</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => openBooking('ai')}
+            className="shrink-0 bg-slate-900 hover:bg-slate-800 text-white px-4 py-3 rounded-2xl font-semibold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          >
+            <Bot size={17} className="text-teal-400" />
+            <span>Book with AI Assistant</span>
+          </button>
+          <button
+            onClick={() => openBooking('manual')}
+            className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-2xl font-semibold text-xs sm:text-sm shadow-md shadow-teal-600/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          >
+            <Plus size={17} />
+            <span>+ Manual Form</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Embedded Live Voice & Text Assistant (as in Admin Panel) */}
+      <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-slate-100 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <h2 className="font-display text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+                <Sparkles size={18} className="text-teal-600" />
+                Book with Neerja AI Receptionist
+              </h2>
+              <span className="text-xs bg-teal-100 text-teal-800 font-bold px-2.5 py-0.5 rounded-full border border-teal-200">
+                Voice Call & Text Chat
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              Speak naturally via microphone or type test messages. Neerja checks availability in real-time and books your visit.
+            </p>
+          </div>
+          <button
+            onClick={() => openBooking('manual')}
+            className="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+          >
+            <span>Or use 4-Step Form</span>
+            <ChevronRight size={14} className="text-teal-600" />
+          </button>
+        </div>
+
+        <div className="max-w-3xl mx-auto">
+          <VoiceAgentSimulator
+            mode="embedded"
+            title="Neerja AI Dental Receptionist"
+            subtitle="Experience real-time patient interactions. Choose your preferred testing method below:"
+            statusLabel="AI Dental Receptionist Online"
+            patient={user}
+            onCallEnded={loadData}
+            onAppointmentBooked={loadData}
+          />
+        </div>
       </div>
 
       {/* Existing Appointments List */}
@@ -269,44 +323,90 @@ export default function MyAppointments() {
         </div>
       </div>
 
-      {/* 4-Step Booking Modal */}
+      {/* Booking Modal with AI Assistant & 4-Step Form */}
       {showBookingModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-white/20 p-6 sm:p-8 relative my-8 animate-scaleUp">
-            {/* Header & Step Indicator */}
-            <div className="pb-6 border-b border-slate-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-teal-600">
-                    Step {step} of 4
-                  </span>
-                  <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
-                    {step === 1 && 'Step 1 — Choose Appointment Type'}
-                    {step === 2 && 'Step 2 — Choose Practitioner'}
-                    {step === 3 && 'Step 3 — Choose Date & Time'}
-                    {step === 4 && 'Step 4 — Review & Confirm'}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setShowBookingModal(false)}
-                  className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-lg transition-colors"
-                >
-                  ✕
-                </button>
+            {/* Header with Close */}
+            <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-teal-600">
+                  Patient Scheduling
+                </span>
+                <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
+                  Book an Appointment
+                </h2>
               </div>
-
-              {/* Step indicator progress bar */}
-              <div className="grid grid-cols-4 gap-2 mt-4">
-                {[1, 2, 3, 4].map((s) => (
-                  <div
-                    key={s}
-                    className={`h-1.5 rounded-full transition-all ${
-                      s <= step ? 'bg-teal-600' : 'bg-slate-200'
-                    }`}
-                  />
-                ))}
-              </div>
+              <button
+                onClick={() => setShowBookingModal(false)}
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-lg transition-colors"
+              >
+                ✕
+              </button>
             </div>
+
+            {/* Mode Switcher */}
+            <div className="grid grid-cols-2 p-1.5 bg-slate-100 rounded-2xl my-5">
+              <button
+                type="button"
+                onClick={() => setModalMode('ai')}
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  modalMode === 'ai'
+                    ? 'bg-white text-slate-900 shadow-sm border border-black/5'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Bot size={16} className={modalMode === 'ai' ? 'text-teal-600' : ''} />
+                <span>AI Voice & Chat Assistant</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalMode('manual')}
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  modalMode === 'manual'
+                    ? 'bg-white text-slate-900 shadow-sm border border-black/5'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <CalendarIcon size={16} className={modalMode === 'manual' ? 'text-teal-600' : ''} />
+                <span>Self-Service 4-Step Form</span>
+              </button>
+            </div>
+
+            {/* Mode 1: AI Assistant embedded */}
+            {modalMode === 'ai' ? (
+              <div className="py-2">
+                <VoiceAgentSimulator
+                  mode="embedded"
+                  title="Neerja AI Dental Receptionist"
+                  subtitle="Experience real-time patient interactions. Choose your preferred testing method below:"
+                  statusLabel="AI Dental Receptionist Online"
+                  patient={user}
+                  onCallEnded={loadData}
+                  onAppointmentBooked={loadData}
+                />
+              </div>
+            ) : (
+              /* Mode 2: 4-Step Wizard */
+              <>
+                <div className="pb-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-400">
+                      Step {step} of 4: {step === 1 && 'Choose Type'} {step === 2 && 'Choose Practitioner'} {step === 3 && 'Choose Date & Time'} {step === 4 && 'Confirm'}
+                    </span>
+                  </div>
+                  {/* Step indicator progress bar */}
+                  <div className="grid grid-cols-4 gap-2 mt-2">
+                    {[1, 2, 3, 4].map((s) => (
+                      <div
+                        key={s}
+                        className={`h-1.5 rounded-full transition-all ${
+                          s <= step ? 'bg-teal-600' : 'bg-slate-200'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
 
             {/* Step Contents */}
             <div className="py-6">
@@ -488,7 +588,7 @@ export default function MyAppointments() {
               )}
             </div>
 
-            {/* Modal Navigation Buttons */}
+            {/* Modal Navigation Buttons (Only for Manual Form) */}
             {!bookingSuccess && (
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 {step > 1 ? (
@@ -519,6 +619,8 @@ export default function MyAppointments() {
                   </button>
                 )}
               </div>
+            )}
+              </>
             )}
           </div>
         </div>

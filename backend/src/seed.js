@@ -1,6 +1,11 @@
 import db from './db.js';
 import bcrypt from 'bcryptjs';
 
+if (process.env.NODE_ENV === 'production' && !process.env.FORCE_SEED) {
+  console.error('[Safety] seed.js cannot be run in production without FORCE_SEED=1 because it resets all database records.');
+  process.exit(1);
+}
+
 db.pragma('foreign_keys = OFF');
 const clearAll = db.transaction(() => {
   db.exec(`

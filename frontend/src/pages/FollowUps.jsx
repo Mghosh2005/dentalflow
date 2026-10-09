@@ -43,6 +43,7 @@ export default function FollowUps() {
   const [filterStatus, setFilterStatus] = useState('pending_approval'); // 'pending_approval' | 'sent' | 'all'
   const [sendingId, setSendingId] = useState(null);
   const [successBanner, setSuccessBanner] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [editingMessage, setEditingMessage] = useState(null);
   const [showAddTask, setShowAddTask] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
@@ -73,13 +74,15 @@ export default function FollowUps() {
   const handleApproveAndSend = async (messageId) => {
     setSendingId(messageId);
     setSuccessBanner('');
+    setErrorMessage('');
     try {
       const res = await api.sendFollowUpMessage(messageId);
       setSuccessBanner(res.message || 'Follow-up message approved and dispatched successfully!');
       setTimeout(() => setSuccessBanner(''), 6000);
       loadData();
     } catch (err) {
-      alert(`Failed to send follow-up message: ${err.message}`);
+      setErrorMessage(`Failed to send follow-up message: ${err.message}`);
+      loadData();
     } finally {
       setSendingId(null);
     }
@@ -134,9 +137,11 @@ export default function FollowUps() {
   };
 
   const pendingCount = messages.filter((m) => m.status === 'pending_approval').length;
+  const failedCount = messages.filter((m) => m.status === 'failed').length;
 
   const filteredMessages = messages.filter((m) => {
     if (filterStatus === 'pending_approval') return m.status === 'pending_approval';
+    if (filterStatus === 'failed') return m.status === 'failed';
     if (filterStatus === 'sent') return m.status === 'sent' || m.status === 'approved';
     return true;
   });
@@ -169,10 +174,23 @@ export default function FollowUps() {
       {successBanner && (
         <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between animate-fadeIn shadow-xs">
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-emerald-600" />
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
             <span>{successBanner}</span>
           </div>
           <button onClick={() => setSuccessBanner('')} className="text-emerald-700 hover:text-emerald-900">
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {errorMessage && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between animate-fadeIn shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-rose-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage('')} className="text-rose-700 hover:text-rose-900">
             ✕
           </button>
         </div>
@@ -217,7 +235,8 @@ export default function FollowUps() {
         {activeTab === 'automated' && (
           <div className="flex items-center gap-1">
             {[
-              { id: 'pending_approval', label: 'Pending Approval' },
+              { id: 'pending_approval', label: `Pending Approval (${pendingCount})` },
+              { id: 'failed', label: `Failed (${failedCount})` },
               { id: 'sent', label: 'Sent / Delivered' },
               { id: 'all', label: 'All Messages' },
             ].map((f) => (
@@ -285,6 +304,16 @@ export default function FollowUps() {
                         Awaiting Staff Approval
                       </span>
                     )}
+                    {msg.status === 'sending' && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-sky-100 text-sky-800 animate-pulse">
+                        Sending...
+                      </span>
+                    )}
+                    {msg.status === 'failed' && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-100 text-rose-800 flex items-center gap-1">
+                        <AlertCircle size={12} /> Delivery Failed
+                      </span>
+                    )}
                     {msg.status === 'sent' && (
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 flex items-center gap-1">
                         <Check size={12} /> Sent
@@ -319,7 +348,7 @@ export default function FollowUps() {
                   <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-mono">
                     "{msg.message_text}"
                   </p>
-                  {isPending && (
+                  {(isPending || msg.status === 'failed') && (
                     <button
                       onClick={() => setEditingMessage(msg)}
                       className="absolute top-3 right-3 text-xs font-semibold text-slate-400 hover:text-teal-700 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-xs flex items-center gap-1"
@@ -329,6 +358,17 @@ export default function FollowUps() {
                   )}
                 </div>
 
+                {/* Delivery failure diagnostics banner */}
+                {msg.status === 'failed' && msg.delivery_result && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-2 my-2">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5 text-rose-600" />
+                    <div>
+                      <strong className="font-bold">Provider Diagnostic: </strong>
+                      <span>{msg.delivery_result}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Actions row: "Approve & Send" prominent button per PDF */}
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                   <p className="text-[11px] text-slate-400">
@@ -336,7 +376,7 @@ export default function FollowUps() {
                   </p>
 
                   <div className="flex items-center gap-2">
-                    {isPending ? (
+                    {isPending || msg.status === 'failed' ? (
                       <>
                         <button
                           onClick={() => handleCancelMessage(msg.id)}
@@ -350,7 +390,13 @@ export default function FollowUps() {
                           className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                         >
                           <Send size={14} />
-                          <span>{sendingId === msg.id ? 'Sending...' : 'Approve & Send'}</span>
+                          <span>
+                            {sendingId === msg.id
+                              ? 'Sending...'
+                              : msg.status === 'failed'
+                              ? 'Retry Send'
+                              : 'Approve & Send'}
+                          </span>
                         </button>
                       </>
                     ) : (
