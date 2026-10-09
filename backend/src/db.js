@@ -150,11 +150,118 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 );
 `);
 
+// Existing safe migrations
 try { db.exec(`ALTER TABLE appointments ADD COLUMN booked_by_ai INTEGER DEFAULT 0`); } catch(e) {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN call_log_id INTEGER REFERENCES call_logs(id)`); } catch(e) {}
 try { db.exec(`ALTER TABLE alerts ADD COLUMN call_log_id INTEGER REFERENCES call_logs(id)`); } catch(e) {}
 try { db.exec(`ALTER TABLE alerts ADD COLUMN escalation_type TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE ai_settings ADD COLUMN groq_api_key TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE ai_settings ADD COLUMN openai_api_key TEXT`); } catch(e) {}
+
+// ===== NEW MIGRATIONS FOR FEATURE UPGRADE =====
+
+// --- User accounts table for authentication ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS user_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practice_id INTEGER REFERENCES practices(id),
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL, -- staff, patient
+  staff_user_id INTEGER REFERENCES users(id),
+  patient_id INTEGER REFERENCES patients(id),
+  display_name TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  last_login TEXT
+);
+`);
+
+// --- Patient extended fields ---
+try { db.exec(`ALTER TABLE patients ADD COLUMN first_name TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN last_name TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN date_of_birth TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN gender TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN address TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN medical_notes TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN emergency_contact TEXT`); } catch(e) {}
+
+// --- Treatment plans ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS treatment_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practice_id INTEGER REFERENCES practices(id),
+  patient_id INTEGER REFERENCES patients(id),
+  plan_name TEXT NOT NULL,
+  procedure_name TEXT,
+  practitioner_id INTEGER REFERENCES practitioners(id),
+  status TEXT DEFAULT 'planned', -- planned, in_progress, completed, on_hold
+  notes TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// --- Follow-up messages (automated messaging system) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS follow_up_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practice_id INTEGER REFERENCES practices(id),
+  patient_id INTEGER REFERENCES patients(id),
+  appointment_id INTEGER REFERENCES appointments(id),
+  call_log_id INTEGER REFERENCES call_logs(id),
+  trigger_type TEXT NOT NULL, -- appointment_reminder, no_show, cancellation, missed_call
+  trigger_event_id TEXT, -- unique ID to prevent duplicates: e.g. "appt_reminder_42"
+  message_text TEXT NOT NULL,
+  template_id INTEGER,
+  status TEXT DEFAULT 'pending_approval', -- pending_approval, approved, sending, sent, failed, cancelled
+  delivery_method TEXT DEFAULT 'sms', -- sms, email, whatsapp
+  delivery_result TEXT,
+  staff_approved_by INTEGER REFERENCES user_accounts(id),
+  approved_at TEXT,
+  sent_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// --- Message templates ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS message_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practice_id INTEGER REFERENCES practices(id),
+  trigger_type TEXT NOT NULL, -- appointment_reminder, no_show, cancellation, missed_call
+  name TEXT NOT NULL,
+  template_text TEXT NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// --- Practitioner extended fields ---
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN phone TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN email TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN title TEXT`); } catch(e) {}
+
+// --- Practitioner availability ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS practitioner_availability (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  practitioner_id INTEGER REFERENCES practitioners(id),
+  day_of_week INTEGER NOT NULL, -- 0=Sunday, 1=Monday, ... 6=Saturday
+  start_time TEXT NOT NULL, -- HH:MM
+  end_time TEXT NOT NULL, -- HH:MM
+  slot_duration_minutes INTEGER DEFAULT 30
+);
+`);
+
+// Create indexes for performance
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_user_accounts_username ON user_accounts(username)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_user_accounts_patient ON user_accounts(patient_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_treatment_plans_patient ON treatment_plans(patient_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_follow_up_messages_trigger ON follow_up_messages(trigger_event_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_appointments_start ON appointments(start_time)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)`); } catch(e) {}
 
 export default db;

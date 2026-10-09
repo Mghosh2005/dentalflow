@@ -1,5 +1,9 @@
 import { useState } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Login from './pages/Login';
+import PatientPortalLayout from './pages/patient/PatientPortalLayout';
 import Sidebar from './components/Sidebar';
+import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
 import Appointments from './pages/Appointments';
 import Patients from './pages/Patients';
@@ -17,16 +21,41 @@ const TITLES = {
   'voice-notes': 'Voice notes',
 };
 
-export default function App() {
+function AppContent() {
+  const { user, isPatient, loading } = useAuth();
   const [page, setPage] = useState('dashboard');
   const [alertsMode, setAlertsMode] = useState(false);
 
   const navigate = (key) => {
-    if (key === 'alerts') { setAlertsMode(true); return; }
+    if (key === 'alerts') {
+      setAlertsMode(true);
+      return;
+    }
     setAlertsMode(false);
     setPage(key);
   };
 
+  // 1. Loading state during session verification
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center">
+        <div className="w-12 h-12 border-3 border-teal-600 border-t-transparent rounded-full animate-spin mb-3" />
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Loading DentalFlow...</p>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated -> Show Login Screen
+  if (!user) {
+    return <Login />;
+  }
+
+  // 3. Patient role -> Show dedicated Patient Portal (3 sections ONLY per PDF)
+  if (isPatient) {
+    return <PatientPortalLayout />;
+  }
+
+  // 4. Staff / Owner role -> Full Practice Management Suite
   let content;
   if (alertsMode) content = <Alerts />;
   else if (page === 'dashboard') content = <Dashboard onNavigate={navigate} />;
@@ -41,11 +70,21 @@ export default function App() {
   else if (page === 'ai-assistant') content = <AiAssistant onNavigate={navigate} />;
   else content = <ComingSoon title={TITLES[page] || 'Coming soon'} />;
 
-
   return (
-    <div className="flex min-h-screen bg-[#F7F8FA]">
+    <div className="flex min-h-screen bg-[#F8FAFC]">
       <Sidebar current={alertsMode ? '' : page} onNavigate={navigate} />
-      <main className="flex-1 p-8">{content}</main>
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header onNavigateAlerts={() => navigate('alerts')} />
+        <main className="flex-1 p-6 sm:p-8 overflow-y-auto">{content}</main>
+      </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

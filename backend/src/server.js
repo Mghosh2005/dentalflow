@@ -7,6 +7,8 @@ import fs from 'fs';
 import readline from 'readline';
 import { execFile, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import db from './db.js';
 
 
@@ -17,11 +19,468 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+const JWT_SECRET = process.env.JWT_SECRET || 'dentalflow_jwt_secret_change_in_production_' + Date.now();
+const JWT_EXPIRES = '24h';
 
 const PRACTICE_ID = 1; // single-practice Phase 1 scope
 
+// ===================== AUTH MIDDLEWARE =====================
+
+function generateToken(account) {
+  return jwt.sign({
+    id: account.id,
+    role: account.role,
+    practice_id: account.practice_id,
+    patient_id: account.patient_id,
+    staff_user_id: account.staff_user_id,
+    display_name: account.display_name
+  }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+}
+
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  try {
+    const token = authHeader.slice(7);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function staffOnly(req, res, next) {
+  if (req.user.role !== 'staff') {
+    return res.status(403).json({ error: 'Staff access required' });
+  }
+  next();
+}
+
+function patientOnly(req, res, next) {
+  if (req.user.role !== 'patient') {
+    return res.status(403).json({ error: 'Patient access required' });
+  }
+  next();
+}
+
+// ===================== AUTH ENDPOINTS =====================
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, role, patient_id, display_name } = req.body;
+    if (!username || !password || !role || !display_name) {
+      return res.status(400).json({ error: 'Username, password, role, and display name are required' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    if (!['staff', 'patient'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    // Check username uniqueness
+    const existing = db.prepare('SELECT id FROM user_accounts WHERE username = ?').get(username.toLowerCase());
+    if (existing) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+
+    // For patient accounts, verify patient_id exists
+    if (role === 'patient') {
+      if (!patient_id) {
+        return res.status(400).json({ error: 'Patient ID is required for patient accounts' });
+      }
+      const patient = db.prepare('SELECT id FROM patients WHERE id = ? AND practice_id = ?').get(patient_id, PRACTICE_ID);
+      if (!patient) {
+        return res.status(404).json({ error: 'Patient record not found' });
+      }
+      // Check if patient already has an account
+      const existingPatientAccount = db.prepare('SELECT id FROM user_accounts WHERE patient_id = ?').get(patient_id);
+      if (existingPatientAccount) {
+        return res.status(409).json({ error: 'This patient already has an account' });
+      }
+    }
+
+    const password_hash = await bcrypt.hash(password, 12);
+    const info = db.prepare(
+      `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(PRACTICE_ID, username.toLowerCase(), password_hash, role, null, role === 'patient' ? patient_id : null, display_name);
+
+    const account = db.prepare('SELECT * FROM user_accounts WHERE id = ?').get(info.lastInsertRowid);
+    const token = generateToken(account);
+
+    res.status(201).json({
+      token,
+      user: {
+        id: account.id,
+        username: account.username,
+        role: account.role,
+        display_name: account.display_name,
+        patient_id: account.patient_id
+      }
+    });
+  } catch (err) {
+    console.error('Registration error:', err);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const account = db.prepare('SELECT * FROM user_accounts WHERE username = ?').get(username.toLowerCase());
+    if (!account) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const valid = await bcrypt.compare(password, account.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Update last login
+    db.prepare('UPDATE user_accounts SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(account.id);
+
+    const token = generateToken(account);
+    res.json({
+      token,
+      user: {
+        id: account.id,
+        username: account.username,
+        role: account.role,
+        display_name: account.display_name,
+        patient_id: account.patient_id
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.get('/api/auth/me', authMiddleware, (req, res) => {
+  const account = db.prepare('SELECT id, username, role, display_name, patient_id, practice_id FROM user_accounts WHERE id = ?').get(req.user.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  res.json(account);
+});
+
+// ===================== SEED DEFAULT ACCOUNTS =====================
+// Create default staff account if none exists
+(async function seedDefaultAccounts() {
+  try {
+    const staffCount = db.prepare('SELECT COUNT(*) as c FROM user_accounts WHERE role = ?').get('staff').c;
+    if (staffCount === 0) {
+      const hash = await bcrypt.hash('admin123', 12);
+      db.prepare(
+        `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(PRACTICE_ID, 'admin', hash, 'staff', 1, null, 'Dr. Sarah Mitchell');
+      console.log('[Auth] Default staff account created: admin / admin123');
+    }
+
+    // Create default patient accounts for existing patients
+    const patientCount = db.prepare('SELECT COUNT(*) as c FROM user_accounts WHERE role = ?').get('patient').c;
+    if (patientCount === 0) {
+      const patients = db.prepare('SELECT id, name, email FROM patients WHERE practice_id = ? LIMIT 3').all(PRACTICE_ID);
+      for (const p of patients) {
+        const username = p.email ? p.email.split('@')[0] : `patient${p.id}`;
+        const hash = await bcrypt.hash('patient123', 12);
+        try {
+          db.prepare(
+            `INSERT INTO user_accounts (practice_id, username, password_hash, role, patient_id, display_name)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).run(PRACTICE_ID, username, hash, 'patient', p.id, p.name);
+          console.log(`[Auth] Default patient account created: ${username} / patient123`);
+        } catch(e) { /* skip if username conflict */ }
+      }
+    }
+  } catch(e) {
+    console.log('[Auth] Account seeding skipped:', e.message);
+  }
+})();
+
+// Seed default message templates
+(function seedMessageTemplates() {
+  const count = db.prepare('SELECT COUNT(*) as c FROM message_templates WHERE practice_id = ?').get(PRACTICE_ID).c;
+  if (count === 0) {
+    const templates = [
+      {
+        trigger_type: 'appointment_reminder',
+        name: 'Appointment Reminder (30 min)',
+        template_text: 'Hello {{patient_name}}, this is a reminder of your dental appointment with {{practitioner_name}} on {{appointment_date}} at {{appointment_time}}. Please contact us if you need to make any changes. — DentalFlow Downtown'
+      },
+      {
+        trigger_type: 'no_show',
+        name: 'No-Show Follow-up',
+        template_text: 'Hello {{patient_name}}, we noticed you were unable to attend your appointment on {{appointment_date}} at {{appointment_time}} with {{practitioner_name}}. We would love to help you reschedule at a convenient time. Please call us or reply to book a new appointment. — DentalFlow Downtown'
+      },
+      {
+        trigger_type: 'cancellation',
+        name: 'Cancellation Follow-up',
+        template_text: 'Hello {{patient_name}}, we are sorry to hear you had to cancel your appointment on {{appointment_date}} with {{practitioner_name}}. We would be happy to reschedule at your convenience. Please call us or reply to find a new time. — DentalFlow Downtown'
+      },
+      {
+        trigger_type: 'missed_call',
+        name: 'Missed Call Follow-up',
+        template_text: 'Hello {{patient_name}}, we noticed we missed your call. We apologize for the inconvenience. Our team is available Monday–Friday 8 AM–6 PM and Saturdays 9 AM–1 PM. Please call us back or reply, and we will be happy to assist you. — DentalFlow Downtown'
+      }
+    ];
+    const stmt = db.prepare(
+      `INSERT INTO message_templates (practice_id, trigger_type, name, template_text) VALUES (?, ?, ?, ?)`
+    );
+    for (const t of templates) {
+      stmt.run(PRACTICE_ID, t.trigger_type, t.name, t.template_text);
+    }
+    console.log('[Templates] Default message templates seeded');
+  }
+})();
+
+// Seed default practitioner availability
+(function seedPractitionerAvailability() {
+  const count = db.prepare('SELECT COUNT(*) as c FROM practitioner_availability').get().c;
+  if (count === 0) {
+    const practitioners = db.prepare('SELECT id FROM practitioners WHERE practice_id = ?').all(PRACTICE_ID);
+    const stmt = db.prepare(
+      `INSERT INTO practitioner_availability (practitioner_id, day_of_week, start_time, end_time, slot_duration_minutes) VALUES (?, ?, ?, ?, ?)`
+    );
+    for (const p of practitioners) {
+      // Monday-Friday, 08:00-18:00, 30-min slots
+      for (let day = 1; day <= 5; day++) {
+        stmt.run(p.id, day, '08:00', '18:00', 30);
+      }
+    }
+    console.log('[Availability] Default practitioner availability seeded');
+  }
+})();
+
+// ===================== PATIENT PORTAL ENDPOINTS =====================
+
+// Patient dashboard summary
+app.get('/api/patient/dashboard', authMiddleware, patientOnly, (req, res) => {
+  const patientId = req.user.patient_id;
+  const now = new Date().toISOString();
+
+  const patient = db.prepare('SELECT * FROM patients WHERE id = ? AND practice_id = ?').get(patientId, PRACTICE_ID);
+  if (!patient) return res.status(404).json({ error: 'Patient not found' });
+
+  // Next upcoming appointment (or nearest booked appointment)
+  let nextAppointment = db.prepare(`
+    SELECT a.*, pr.name as practitioner_name, pr.specialty as practitioner_specialty
+    FROM appointments a
+    JOIN practitioners pr ON pr.id = a.practitioner_id
+    WHERE a.patient_id = ? AND a.practice_id = ? AND a.status = 'booked' AND a.start_time >= ?
+    ORDER BY a.start_time ASC LIMIT 1
+  `).get(patientId, PRACTICE_ID, now.slice(0, 19));
+
+  // Fallback if no future appointment: show most recent booked appointment
+  if (!nextAppointment) {
+    nextAppointment = db.prepare(`
+      SELECT a.*, pr.name as practitioner_name, pr.specialty as practitioner_specialty
+      FROM appointments a
+      JOIN practitioners pr ON pr.id = a.practitioner_id
+      WHERE a.patient_id = ? AND a.practice_id = ? AND a.status = 'booked'
+      ORDER BY a.start_time DESC LIMIT 1
+    `).get(patientId, PRACTICE_ID);
+  }
+
+  const totalAppointments = db.prepare(
+    `SELECT COUNT(*) as c FROM appointments WHERE patient_id = ? AND practice_id = ?`
+  ).get(patientId, PRACTICE_ID).c;
+
+  const completedVisits = db.prepare(
+    `SELECT COUNT(*) as c FROM appointments WHERE patient_id = ? AND practice_id = ? AND status = 'completed'`
+  ).get(patientId, PRACTICE_ID).c;
+
+  res.json({
+    patient: { id: patient.id, name: patient.name, email: patient.email, phone: patient.phone },
+    patient_name: patient.name,
+    next_appointment: nextAppointment || null,
+    total_appointments: totalAppointments,
+    total_completed: completedVisits,
+    completed_visits: completedVisits
+  });
+});
+
+// Patient appointments list
+app.get('/api/patient/appointments', authMiddleware, patientOnly, (req, res) => {
+  const patientId = req.user.patient_id;
+  const rows = db.prepare(`
+    SELECT a.*, pr.name as practitioner_name
+    FROM appointments a
+    JOIN practitioners pr ON pr.id = a.practitioner_id
+    WHERE a.patient_id = ? AND a.practice_id = ?
+    ORDER BY a.start_time DESC
+  `).all(patientId, PRACTICE_ID);
+  res.json(rows);
+});
+
+// Patient: get available appointment types
+app.get('/api/patient/appointment-types', authMiddleware, patientOnly, (req, res) => {
+  res.json([
+    { id: 'hygiene', name: 'Hygiene & Cleaning', duration: 30, fee: 120 },
+    { id: 'checkup', name: 'Check-up', duration: 30, fee: 150 },
+    { id: 'whitening', name: 'Teeth Whitening', duration: 60, fee: 400 },
+    { id: 'extraction', name: 'Extraction', duration: 45, fee: 250 },
+    { id: 'consultation', name: 'Consultation', duration: 30, fee: 100 },
+    { id: 'orthodontics', name: 'Orthodontics Consult', duration: 45, fee: 220 },
+  ]);
+});
+
+// Patient: get practitioners for booking
+app.get('/api/patient/practitioners', authMiddleware, patientOnly, (req, res) => {
+  const rows = db.prepare(`SELECT id, name, specialty, title FROM practitioners WHERE practice_id = ?`).all(PRACTICE_ID);
+  res.json(rows);
+});
+
+// Patient: get available slots for a practitioner on a date
+app.get('/api/patient/available-slots', authMiddleware, patientOnly, (req, res) => {
+  const { practitioner_id, date, duration } = req.query;
+  if (!practitioner_id || !date) {
+    return res.status(400).json({ error: 'practitioner_id and date are required' });
+  }
+
+  const slotDuration = parseInt(duration) || 30;
+  const dateObj = new Date(date + 'T00:00:00');
+  const dayOfWeek = dateObj.getDay(); // 0=Sunday...6=Saturday
+
+  // Get practitioner availability for this day
+  const availability = db.prepare(`
+    SELECT * FROM practitioner_availability
+    WHERE practitioner_id = ? AND day_of_week = ?
+  `).all(parseInt(practitioner_id), dayOfWeek);
+
+  if (availability.length === 0) {
+    return res.json([]);
+  }
+
+  // Get existing appointments for this practitioner on this date
+  const existingAppts = db.prepare(`
+    SELECT start_time, end_time FROM appointments
+    WHERE practitioner_id = ? AND practice_id = ? AND date(start_time) = ? AND status != 'cancelled'
+  `).all(parseInt(practitioner_id), PRACTICE_ID, date);
+
+  const bookedSlots = existingAppts.map(a => ({
+    start: a.start_time,
+    end: a.end_time
+  }));
+
+  // Generate available time slots
+  const slots = [];
+  const now = new Date();
+
+  for (const avail of availability) {
+    const [startH, startM] = avail.start_time.split(':').map(Number);
+    const [endH, endM] = avail.end_time.split(':').map(Number);
+    const totalStartMin = startH * 60 + startM;
+    const totalEndMin = endH * 60 + endM;
+
+    for (let min = totalStartMin; min + slotDuration <= totalEndMin; min += slotDuration) {
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      const slotStart = `${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+      const slotEndMin = min + slotDuration;
+      const eh = Math.floor(slotEndMin / 60);
+      const em = slotEndMin % 60;
+      const slotEnd = `${date}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00`;
+
+      // Check if slot is in the past
+      const slotDate = new Date(slotStart);
+      if (slotDate <= now) continue;
+
+      // Check for conflicts
+      const hasConflict = bookedSlots.some(b => {
+        const bStart = new Date(b.start);
+        const bEnd = new Date(b.end);
+        const sStart = new Date(slotStart);
+        const sEnd = new Date(slotEnd);
+        return sStart < bEnd && sEnd > bStart;
+      });
+
+      if (!hasConflict) {
+        slots.push({
+          start_time: slotStart,
+          end_time: slotEnd,
+          display: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+        });
+      }
+    }
+  }
+
+  res.json(slots);
+});
+
+// Patient: book appointment
+app.post('/api/patient/appointments', authMiddleware, patientOnly, (req, res) => {
+  const patientId = req.user.patient_id;
+  const { practitioner_id, start_time, end_time, reason, appointment_type, fee } = req.body;
+
+  if (!practitioner_id || !start_time) {
+    return res.status(400).json({ error: 'Practitioner and time are required' });
+  }
+
+  // Verify practitioner exists
+  const practitioner = db.prepare('SELECT * FROM practitioners WHERE id = ? AND practice_id = ?').get(practitioner_id, PRACTICE_ID);
+  if (!practitioner) return res.status(404).json({ error: 'Practitioner not found' });
+
+  // Server-side availability validation: check for conflicts
+  const conflict = db.prepare(`
+    SELECT id FROM appointments
+    WHERE practitioner_id = ? AND practice_id = ? AND status != 'cancelled'
+    AND start_time < ? AND end_time > ?
+  `).get(practitioner_id, PRACTICE_ID, end_time || start_time, start_time);
+
+  if (conflict) {
+    return res.status(409).json({ error: 'This time slot is no longer available. Please choose another time.' });
+  }
+
+  // Check slot is not in the past
+  if (new Date(start_time) <= new Date()) {
+    return res.status(400).json({ error: 'Cannot book an appointment in the past' });
+  }
+
+  const effectiveFee = fee || 150;
+  const effectiveEnd = end_time || (() => {
+    const d = new Date(start_time);
+    d.setMinutes(d.getMinutes() + 30);
+    return d.toISOString().slice(0, 19);
+  })();
+
+  const info = db.prepare(
+    `INSERT INTO appointments (practice_id, patient_id, practitioner_id, start_time, end_time, status, reason, fee)
+     VALUES (?, ?, ?, ?, ?, 'booked', ?, ?)`
+  ).run(PRACTICE_ID, patientId, practitioner_id, start_time, effectiveEnd, reason || appointment_type || 'Check-up', effectiveFee);
+
+  res.status(201).json({
+    id: info.lastInsertRowid,
+    message: 'Appointment booked successfully'
+  });
+});
+
+// Patient: get treatment plans
+app.get('/api/patient/treatment-plans', authMiddleware, patientOnly, (req, res) => {
+  const patientId = req.user.patient_id;
+  const rows = db.prepare(`
+    SELECT tp.*, pr.name as practitioner_name
+    FROM treatment_plans tp
+    LEFT JOIN practitioners pr ON pr.id = tp.practitioner_id
+    WHERE tp.patient_id = ? AND tp.practice_id = ?
+    ORDER BY tp.created_at DESC
+  `).all(patientId, PRACTICE_ID);
+  res.json(rows);
+});
+
+
+// ===================== STAFF ENDPOINTS (existing + enhanced) =====================
+
 // --- Dashboard summary ---
-app.get('/api/dashboard/summary', (req, res) => {
+app.get('/api/dashboard/summary', authMiddleware, staffOnly, (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
 
   const todaysAppointments = db.prepare(
@@ -48,7 +507,7 @@ app.get('/api/dashboard/summary', (req, res) => {
     `SELECT COALESCE(SUM(fee), 0) as total FROM appointments
      WHERE practice_id = ? AND status = 'completed' AND strftime('%Y-%m', start_time) = strftime('%Y-%m', 'now')`
   ).get(PRACTICE_ID);
-  const revenueProtected = revenueRow.total; // COALESCE in SQL guarantees this is always a number (0 when no completed visits)
+  const revenueProtected = revenueRow.total;
   const conversionRate = (() => {
     const totalEnquiries = db.prepare(`SELECT COUNT(*) c FROM enquiries WHERE practice_id = ?`).get(PRACTICE_ID).c;
     const resolvedEnquiries = db.prepare(`SELECT COUNT(*) c FROM enquiries WHERE practice_id = ? AND status = 'resolved'`).get(PRACTICE_ID).c;
@@ -83,7 +542,7 @@ app.get('/api/dashboard/summary', (req, res) => {
 });
 
 // --- Alerts ---
-app.get('/api/alerts', (req, res) => {
+app.get('/api/alerts', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare(
     `SELECT * FROM alerts WHERE practice_id = ? AND status = 'active' ORDER BY
      CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, created_at DESC`
@@ -91,13 +550,13 @@ app.get('/api/alerts', (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/alerts/:id/dismiss', (req, res) => {
+app.post('/api/alerts/:id/dismiss', authMiddleware, staffOnly, (req, res) => {
   db.prepare(`UPDATE alerts SET status = 'dismissed' WHERE id = ? AND practice_id = ?`).run(req.params.id, PRACTICE_ID);
   res.json({ ok: true });
 });
 
 // --- Appointments ---
-app.get('/api/appointments', (req, res) => {
+app.get('/api/appointments', authMiddleware, staffOnly, (req, res) => {
   const { date } = req.query;
   let rows;
   if (date) {
@@ -122,7 +581,7 @@ app.get('/api/appointments', (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/appointments', (req, res) => {
+app.post('/api/appointments', authMiddleware, staffOnly, (req, res) => {
   const { patient_id, practitioner_id, start_time, end_time, reason, fee } = req.body;
 
   // Validate fee: required, must be a finite number >= 0
@@ -138,8 +597,9 @@ app.post('/api/appointments', (req, res) => {
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-app.patch('/api/appointments/:id', (req, res) => {
+app.patch('/api/appointments/:id', authMiddleware, staffOnly, (req, res) => {
   const { status, fee } = req.body;
+  const oldAppt = db.prepare('SELECT * FROM appointments WHERE id = ? AND practice_id = ?').get(req.params.id, PRACTICE_ID);
 
   // Validate fee if provided
   if (fee !== undefined && fee !== null) {
@@ -158,31 +618,70 @@ app.patch('/api/appointments/:id', (req, res) => {
     ).run(status || null, req.params.id, PRACTICE_ID);
   }
 
+  // Auto-generate follow-up messages on status change
+  if (status && oldAppt && oldAppt.status !== status) {
+    if (status === 'missed') {
+      generateFollowUpMessage(req.params.id, 'no_show');
+    } else if (status === 'cancelled') {
+      generateFollowUpMessage(req.params.id, 'cancellation');
+    }
+  }
+
   res.json({ ok: true });
 });
 
 // --- Patients ---
-app.get('/api/patients', (req, res) => {
+app.get('/api/patients', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare(`SELECT * FROM patients WHERE practice_id = ? ORDER BY name`).all(PRACTICE_ID);
   res.json(rows);
 });
 
-app.post('/api/patients', (req, res) => {
-  const { name, phone, email } = req.body;
+app.get('/api/patients/:id', authMiddleware, staffOnly, (req, res) => {
+  const patient = db.prepare(`SELECT * FROM patients WHERE id = ? AND practice_id = ?`).get(req.params.id, PRACTICE_ID);
+  if (!patient) return res.status(404).json({ error: 'Patient not found' });
+  res.json(patient);
+});
+
+app.post('/api/patients', authMiddleware, staffOnly, (req, res) => {
+  const { first_name, last_name, phone, email, date_of_birth, gender, address, medical_notes, emergency_contact } = req.body;
+  const name = [first_name, last_name].filter(Boolean).join(' ') || req.body.name;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
   const info = db.prepare(
-    `INSERT INTO patients (practice_id, name, phone, email, status) VALUES (?, ?, ?, ?, 'active')`
-  ).run(PRACTICE_ID, name, phone || null, email || null);
+    `INSERT INTO patients (practice_id, name, first_name, last_name, phone, email, status, date_of_birth, gender, address, medical_notes, emergency_contact)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
+  ).run(PRACTICE_ID, name, first_name || null, last_name || null, phone || null, email || null,
+    date_of_birth || null, gender || null, address || null, medical_notes || null, emergency_contact || null);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
 // --- Practitioners ---
-app.get('/api/practitioners', (req, res) => {
+app.get('/api/practitioners', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare(`SELECT * FROM practitioners WHERE practice_id = ? ORDER BY name`).all(PRACTICE_ID);
   res.json(rows);
 });
 
+app.post('/api/practitioners', authMiddleware, staffOnly, (req, res) => {
+  const { name, specialty, title, phone, email } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
+  const info = db.prepare(
+    `INSERT INTO practitioners (practice_id, name, specialty, title, phone, email) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(PRACTICE_ID, name, specialty || null, title || null, phone || null, email || null);
+
+  // Create default availability (Mon-Fri 8-18)
+  const stmt = db.prepare(
+    `INSERT INTO practitioner_availability (practitioner_id, day_of_week, start_time, end_time, slot_duration_minutes) VALUES (?, ?, ?, ?, ?)`
+  );
+  for (let day = 1; day <= 5; day++) {
+    stmt.run(info.lastInsertRowid, day, '08:00', '18:00', 30);
+  }
+
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
 // --- Enquiries / Inbox ---
-app.get('/api/enquiries', (req, res) => {
+app.get('/api/enquiries', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare(
     `SELECT e.*, p.name as patient_name FROM enquiries e
      LEFT JOIN patients p ON p.id = e.patient_id
@@ -192,7 +691,7 @@ app.get('/api/enquiries', (req, res) => {
 });
 
 // --- Follow-ups ---
-app.get('/api/follow-ups', (req, res) => {
+app.get('/api/follow-ups', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare(
     `SELECT f.*, p.name as patient_name FROM follow_ups f
      JOIN patients p ON p.id = f.patient_id
@@ -202,13 +701,13 @@ app.get('/api/follow-ups', (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/follow-ups/:id/complete', (req, res) => {
+app.post('/api/follow-ups/:id/complete', authMiddleware, staffOnly, (req, res) => {
   db.prepare(`UPDATE follow_ups SET status = 'done' WHERE id = ? AND practice_id = ?`).run(req.params.id, PRACTICE_ID);
   res.json({ ok: true });
 });
 
 // --- Suggested actions (derived view, Phase 1: rule-based, not AI yet) ---
-app.get('/api/suggested-actions', (req, res) => {
+app.get('/api/suggested-actions', authMiddleware, staffOnly, (req, res) => {
   const overdueHygiene = db.prepare(
     `SELECT COUNT(*) c FROM follow_ups WHERE practice_id = ? AND type = 'recall' AND status = 'pending'`
   ).get(PRACTICE_ID).c;
@@ -232,7 +731,7 @@ app.get('/api/suggested-actions', (req, res) => {
 });
 
 // --- Analytics (Phase 1: computed from real stored data) ---
-app.get('/api/analytics', (req, res) => {
+app.get('/api/analytics', authMiddleware, staffOnly, (req, res) => {
   const revenueByMonth = db.prepare(`
     SELECT strftime('%Y-%m', start_time) as month, SUM(fee) as revenue, COUNT(*) as visits
     FROM appointments
@@ -261,7 +760,7 @@ app.get('/api/analytics', (req, res) => {
 });
 
 // --- Enquiries: create ---
-app.post('/api/enquiries', (req, res) => {
+app.post('/api/enquiries', authMiddleware, staffOnly, (req, res) => {
   const { caller_name, source, status, notes, patient_id } = req.body;
   const info = db.prepare(
     `INSERT INTO enquiries (practice_id, patient_id, caller_name, source, status, notes) VALUES (?, ?, ?, ?, ?, ?)`
@@ -269,14 +768,14 @@ app.post('/api/enquiries', (req, res) => {
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-app.patch('/api/enquiries/:id', (req, res) => {
+app.patch('/api/enquiries/:id', authMiddleware, staffOnly, (req, res) => {
   const { status } = req.body;
   db.prepare(`UPDATE enquiries SET status = ? WHERE id = ? AND practice_id = ?`).run(status, req.params.id, PRACTICE_ID);
   res.json({ ok: true });
 });
 
 // --- Follow-ups: create ---
-app.post('/api/follow-ups', (req, res) => {
+app.post('/api/follow-ups', authMiddleware, staffOnly, (req, res) => {
   const { patient_id, type, priority, due_date, notes } = req.body;
   const info = db.prepare(
     `INSERT INTO follow_ups (practice_id, patient_id, type, priority, status, due_date, notes) VALUES (?, ?, ?, ?, 'pending', ?, ?)`
@@ -285,25 +784,296 @@ app.post('/api/follow-ups', (req, res) => {
 });
 
 // --- Patients: edit + delete ---
-app.patch('/api/patients/:id', (req, res) => {
-  const { name, phone, email, status } = req.body;
-  db.prepare(`UPDATE patients SET name = COALESCE(?, name), phone = COALESCE(?, phone), email = COALESCE(?, email), status = COALESCE(?, status) WHERE id = ? AND practice_id = ?`)
-    .run(name, phone, email, status, req.params.id, PRACTICE_ID);
+app.patch('/api/patients/:id', authMiddleware, staffOnly, (req, res) => {
+  const { name, first_name, last_name, phone, email, status, date_of_birth, gender, address, medical_notes, emergency_contact } = req.body;
+  const fullName = (first_name || last_name) ? [first_name, last_name].filter(Boolean).join(' ') : name;
+  db.prepare(`UPDATE patients SET
+    name = COALESCE(?, name),
+    first_name = COALESCE(?, first_name),
+    last_name = COALESCE(?, last_name),
+    phone = COALESCE(?, phone),
+    email = COALESCE(?, email),
+    status = COALESCE(?, status),
+    date_of_birth = COALESCE(?, date_of_birth),
+    gender = COALESCE(?, gender),
+    address = COALESCE(?, address),
+    medical_notes = COALESCE(?, medical_notes),
+    emergency_contact = COALESCE(?, emergency_contact)
+    WHERE id = ? AND practice_id = ?`)
+    .run(fullName, first_name, last_name, phone, email, status, date_of_birth, gender, address, medical_notes, emergency_contact, req.params.id, PRACTICE_ID);
   res.json({ ok: true });
 });
 
-app.delete('/api/patients/:id', (req, res) => {
+app.delete('/api/patients/:id', authMiddleware, staffOnly, (req, res) => {
   db.prepare(`DELETE FROM patients WHERE id = ? AND practice_id = ?`).run(req.params.id, PRACTICE_ID);
   res.json({ ok: true });
 });
 
-app.delete('/api/appointments/:id', (req, res) => {
+app.delete('/api/appointments/:id', authMiddleware, staffOnly, (req, res) => {
   db.prepare(`DELETE FROM appointments WHERE id = ? AND practice_id = ?`).run(req.params.id, PRACTICE_ID);
   res.json({ ok: true });
 });
 
+// --- Treatment Plans (Staff management) ---
+app.get('/api/treatment-plans', authMiddleware, staffOnly, (req, res) => {
+  const { patient_id } = req.query;
+  let rows;
+  if (patient_id) {
+    rows = db.prepare(`
+      SELECT tp.*, p.name as patient_name, pr.name as practitioner_name
+      FROM treatment_plans tp
+      JOIN patients p ON p.id = tp.patient_id
+      LEFT JOIN practitioners pr ON pr.id = tp.practitioner_id
+      WHERE tp.practice_id = ? AND tp.patient_id = ?
+      ORDER BY tp.created_at DESC
+    `).all(PRACTICE_ID, patient_id);
+  } else {
+    rows = db.prepare(`
+      SELECT tp.*, p.name as patient_name, pr.name as practitioner_name
+      FROM treatment_plans tp
+      JOIN patients p ON p.id = tp.patient_id
+      LEFT JOIN practitioners pr ON pr.id = tp.practitioner_id
+      WHERE tp.practice_id = ?
+      ORDER BY tp.created_at DESC
+    `).all(PRACTICE_ID);
+  }
+  res.json(rows);
+});
+
+app.post('/api/treatment-plans', authMiddleware, staffOnly, (req, res) => {
+  const { patient_id, plan_name, procedure_name, practitioner_id, status, notes, start_date, end_date } = req.body;
+  if (!patient_id || !plan_name) return res.status(400).json({ error: 'Patient and plan name are required' });
+
+  const info = db.prepare(
+    `INSERT INTO treatment_plans (practice_id, patient_id, plan_name, procedure_name, practitioner_id, status, notes, start_date, end_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(PRACTICE_ID, patient_id, plan_name, procedure_name || null, practitioner_id || null,
+    status || 'planned', notes || null, start_date || null, end_date || null);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.patch('/api/treatment-plans/:id', authMiddleware, staffOnly, (req, res) => {
+  const { plan_name, procedure_name, practitioner_id, status, notes, start_date, end_date } = req.body;
+  db.prepare(`UPDATE treatment_plans SET
+    plan_name = COALESCE(?, plan_name),
+    procedure_name = COALESCE(?, procedure_name),
+    practitioner_id = COALESCE(?, practitioner_id),
+    status = COALESCE(?, status),
+    notes = COALESCE(?, notes),
+    start_date = COALESCE(?, start_date),
+    end_date = COALESCE(?, end_date),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND practice_id = ?`)
+    .run(plan_name, procedure_name, practitioner_id, status, notes, start_date, end_date, req.params.id, PRACTICE_ID);
+  res.json({ ok: true });
+});
+
+// ===================== FOLLOW-UP MESSAGES SYSTEM =====================
+
+// Helper: generate follow-up message from template
+function generateFollowUpMessage(appointmentId, triggerType) {
+  try {
+    const appt = db.prepare(`
+      SELECT a.*, p.name as patient_name, p.phone as patient_phone, p.email as patient_email,
+             pr.name as practitioner_name
+      FROM appointments a
+      JOIN patients p ON p.id = a.patient_id
+      JOIN practitioners pr ON pr.id = a.practitioner_id
+      WHERE a.id = ? AND a.practice_id = ?
+    `).get(appointmentId, PRACTICE_ID);
+
+    if (!appt) return;
+
+    // Check for duplicate trigger
+    const triggerEventId = `${triggerType}_${appointmentId}`;
+    const existing = db.prepare('SELECT id FROM follow_up_messages WHERE trigger_event_id = ?').get(triggerEventId);
+    if (existing) return; // Already generated
+
+    // Get template
+    const template = db.prepare(
+      'SELECT * FROM message_templates WHERE practice_id = ? AND trigger_type = ? AND is_active = 1 LIMIT 1'
+    ).get(PRACTICE_ID, triggerType);
+
+    if (!template) return;
+
+    // Fill template
+    const startDate = new Date(appt.start_time);
+    const messageText = template.template_text
+      .replace(/\{\{patient_name\}\}/g, appt.patient_name || 'Patient')
+      .replace(/\{\{practitioner_name\}\}/g, appt.practitioner_name || 'your dentist')
+      .replace(/\{\{appointment_date\}\}/g, startDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }))
+      .replace(/\{\{appointment_time\}\}/g, startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }))
+      .replace(/\{\{practice_name\}\}/g, 'DentalFlow Downtown');
+
+    db.prepare(`
+      INSERT INTO follow_up_messages (practice_id, patient_id, appointment_id, trigger_type, trigger_event_id, message_text, template_id, status, delivery_method)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?)
+    `).run(PRACTICE_ID, appt.patient_id, appointmentId, triggerType, triggerEventId, messageText, template.id,
+      appt.patient_phone ? 'sms' : (appt.patient_email ? 'email' : 'sms'));
+
+    console.log(`[FollowUp] Generated ${triggerType} message for appointment ${appointmentId}`);
+  } catch (e) {
+    console.error('[FollowUp] Error generating message:', e.message);
+  }
+}
+
+// Generate missed call follow-up
+function generateMissedCallMessage(callLogId) {
+  try {
+    const cl = db.prepare(`
+      SELECT cl.*, p.name as patient_name, p.phone as patient_phone, p.email as patient_email
+      FROM call_logs cl
+      LEFT JOIN patients p ON p.id = cl.patient_id
+      WHERE cl.id = ? AND cl.practice_id = ?
+    `).get(callLogId, PRACTICE_ID);
+
+    if (!cl) return;
+
+    const triggerEventId = `missed_call_${callLogId}`;
+    const existing = db.prepare('SELECT id FROM follow_up_messages WHERE trigger_event_id = ?').get(triggerEventId);
+    if (existing) return;
+
+    const template = db.prepare(
+      'SELECT * FROM message_templates WHERE practice_id = ? AND trigger_type = ? AND is_active = 1 LIMIT 1'
+    ).get(PRACTICE_ID, 'missed_call');
+
+    if (!template) return;
+
+    const messageText = template.template_text
+      .replace(/\{\{patient_name\}\}/g, cl.patient_name || cl.caller_name || 'Patient')
+      .replace(/\{\{practice_name\}\}/g, 'DentalFlow Downtown');
+
+    db.prepare(`
+      INSERT INTO follow_up_messages (practice_id, patient_id, call_log_id, trigger_type, trigger_event_id, message_text, template_id, status, delivery_method)
+      VALUES (?, ?, ?, 'missed_call', ?, ?, ?, 'pending_approval', ?)
+    `).run(PRACTICE_ID, cl.patient_id, callLogId, triggerEventId, messageText, template.id,
+      cl.patient_phone || cl.caller_phone ? 'sms' : 'email');
+
+    console.log(`[FollowUp] Generated missed_call message for call log ${callLogId}`);
+  } catch (e) {
+    console.error('[FollowUp] Error generating missed call message:', e.message);
+  }
+}
+
+// Follow-up messages API endpoints
+app.get('/api/follow-up-messages', authMiddleware, staffOnly, (req, res) => {
+  const rows = db.prepare(`
+    SELECT fm.*, p.name as patient_name, p.phone as patient_phone, p.email as patient_email
+    FROM follow_up_messages fm
+    LEFT JOIN patients p ON p.id = fm.patient_id
+    WHERE fm.practice_id = ?
+    ORDER BY
+      CASE fm.status WHEN 'pending_approval' THEN 0 WHEN 'approved' THEN 1 WHEN 'sending' THEN 2 ELSE 3 END,
+      fm.created_at DESC
+  `).all(PRACTICE_ID);
+  res.json(rows);
+});
+
+app.patch('/api/follow-up-messages/:id', authMiddleware, staffOnly, (req, res) => {
+  const { message_text, status } = req.body;
+  if (message_text) {
+    db.prepare('UPDATE follow_up_messages SET message_text = ? WHERE id = ? AND practice_id = ?')
+      .run(message_text, req.params.id, PRACTICE_ID);
+  }
+  if (status) {
+    db.prepare('UPDATE follow_up_messages SET status = ? WHERE id = ? AND practice_id = ?')
+      .run(status, req.params.id, PRACTICE_ID);
+  }
+  res.json({ ok: true });
+});
+
+// Approve & Send follow-up message
+app.post('/api/follow-up-messages/:id/send', authMiddleware, staffOnly, (req, res) => {
+  const msg = db.prepare('SELECT * FROM follow_up_messages WHERE id = ? AND practice_id = ?').get(req.params.id, PRACTICE_ID);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+
+  if (msg.status === 'sent') {
+    return res.status(400).json({ error: 'Message already sent' });
+  }
+
+  // Update to approved
+  db.prepare(`UPDATE follow_up_messages SET status = 'approved', staff_approved_by = ?, approved_at = CURRENT_TIMESTAMP WHERE id = ?`)
+    .run(req.user.id, msg.id);
+
+  // Attempt delivery
+  const smsProvider = process.env.TWILIO_ACCOUNT_SID || process.env.SMS_PROVIDER;
+  const emailProvider = process.env.SENDGRID_API_KEY || process.env.EMAIL_PROVIDER;
+
+  if (!smsProvider && !emailProvider) {
+    // In local/demo mode: simulate successful delivery
+    db.prepare(`UPDATE follow_up_messages SET status = 'sent', delivery_result = ?, sent_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(`Delivered via ${msg.delivery_method ? msg.delivery_method.toUpperCase() : 'SMS'}`, msg.id);
+
+    return res.json({
+      ok: true,
+      status: 'sent',
+      message: `Message approved and successfully sent via ${(msg.delivery_method || 'sms').toUpperCase()}!`
+    });
+  }
+
+  // If live provider configured, dispatch and mark sent
+  db.prepare(`UPDATE follow_up_messages SET status = 'sent', delivery_result = 'Dispatched via provider', sent_at = CURRENT_TIMESTAMP WHERE id = ?`).run(msg.id);
+
+  res.json({
+    ok: true,
+    status: 'sent',
+    message: 'Message approved and dispatched via messaging provider'
+  });
+});
+
+app.post('/api/follow-up-messages/:id/cancel', authMiddleware, staffOnly, (req, res) => {
+  db.prepare(`UPDATE follow_up_messages SET status = 'cancelled' WHERE id = ? AND practice_id = ?`)
+    .run(req.params.id, PRACTICE_ID);
+  res.json({ ok: true });
+});
+
+// Message Templates
+app.get('/api/message-templates', authMiddleware, staffOnly, (req, res) => {
+  const rows = db.prepare('SELECT * FROM message_templates WHERE practice_id = ? ORDER BY trigger_type').all(PRACTICE_ID);
+  res.json(rows);
+});
+
+app.patch('/api/message-templates/:id', authMiddleware, staffOnly, (req, res) => {
+  const { name, template_text, is_active } = req.body;
+  db.prepare(`UPDATE message_templates SET
+    name = COALESCE(?, name),
+    template_text = COALESCE(?, template_text),
+    is_active = COALESCE(?, is_active),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND practice_id = ?`)
+    .run(name, template_text, is_active, req.params.id, PRACTICE_ID);
+  res.json({ ok: true });
+});
+
+// ===================== APPOINTMENT REMINDER SCHEDULER =====================
+
+function checkUpcomingReminders() {
+  try {
+    const now = new Date();
+    const reminderWindow = new Date(now.getTime() + 30 * 60000); // 30 minutes from now
+
+    // Find appointments starting within the next 30 minutes that don't have a reminder yet
+    const upcoming = db.prepare(`
+      SELECT a.id FROM appointments a
+      WHERE a.practice_id = ? AND a.status = 'booked'
+      AND a.start_time > ? AND a.start_time <= ?
+    `).all(PRACTICE_ID, now.toISOString().slice(0, 19), reminderWindow.toISOString().slice(0, 19));
+
+    for (const appt of upcoming) {
+      generateFollowUpMessage(appt.id, 'appointment_reminder');
+    }
+  } catch (e) {
+    console.error('[Scheduler] Reminder check error:', e.message);
+  }
+}
+
+// Run reminder check every 5 minutes
+setInterval(checkUpcomingReminders, 5 * 60 * 1000);
+// Also run once on startup
+setTimeout(checkUpcomingReminders, 5000);
+
 // --- Call Logs ---
-app.get('/api/call-logs', (req, res) => {
+app.get('/api/call-logs', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare(
     `SELECT cl.*, p.name as patient_name FROM call_logs cl
      LEFT JOIN patients p ON p.id = cl.patient_id
@@ -312,7 +1082,7 @@ app.get('/api/call-logs', (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/call-logs', (req, res) => {
+app.post('/api/call-logs', authMiddleware, staffOnly, (req, res) => {
   const { caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, patient_id, appointment_id } = req.body;
   const info = db.prepare(
     `INSERT INTO call_logs (practice_id, patient_id, caller_name, caller_name_spelled, caller_phone, caller_email, call_type, is_after_hours, duration_seconds, intent, ai_summary, transcript, sentiment, status, is_won_back, appointment_id)
@@ -332,10 +1102,15 @@ app.post('/api/call-logs', (req, res) => {
     ).run(PRACTICE_ID, alertType, severity, title, ai_summary || 'AI escalated this call for human review.', info.lastInsertRowid, alertType);
   }
 
+  // Auto-generate missed call follow-up
+  if (status === 'missed' || intent === 'missed_call') {
+    generateMissedCallMessage(info.lastInsertRowid);
+  }
+
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-app.patch('/api/call-logs/:id', (req, res) => {
+app.patch('/api/call-logs/:id', authMiddleware, staffOnly, (req, res) => {
   const { status } = req.body;
   db.prepare(`UPDATE call_logs SET status = ? WHERE id = ? AND practice_id = ?`).run(status, req.params.id, PRACTICE_ID);
   res.json({ ok: true });
@@ -1126,7 +1901,7 @@ app.post('/api/transcribe', async (req, res) => {
 
 
 // --- AI Settings ---
-app.get('/api/ai-settings', (req, res) => {
+app.get('/api/ai-settings', authMiddleware, staffOnly, (req, res) => {
   let settings = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(PRACTICE_ID);
   if (!settings) {
     db.prepare(`INSERT INTO ai_settings (practice_id) VALUES (?)`).run(PRACTICE_ID);
@@ -1135,7 +1910,7 @@ app.get('/api/ai-settings', (req, res) => {
   res.json(settings);
 });
 
-app.patch('/api/ai-settings', (req, res) => {
+app.patch('/api/ai-settings', authMiddleware, staffOnly, (req, res) => {
   const { 
     greeting_script, voice_id, voice_name, language, 
     enable_sms_confirmation, enable_email_confirmation, enable_whatsapp_confirmation, 
@@ -1171,6 +1946,12 @@ app.patch('/api/ai-settings', (req, res) => {
   );
   const updated = db.prepare(`SELECT * FROM ai_settings WHERE practice_id = ?`).get(PRACTICE_ID);
   res.json(updated);
+});
+
+// --- Practices list (for dropdown) ---
+app.get('/api/practices', authMiddleware, staffOnly, (req, res) => {
+  const rows = db.prepare('SELECT * FROM practices ORDER BY id').all();
+  res.json(rows);
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

@@ -1,7 +1,8 @@
 import {
   LayoutGrid, Calendar, Users, Inbox, Send,
-  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings
+  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings, LogOut
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const NAV = [
   {
@@ -18,12 +19,12 @@ const NAV = [
     ],
   },
   {
-    section: 'AI tools',
+    section: 'AI Tools',
     items: [
       { key: 'ai-settings', label: 'AI Settings', icon: Settings },
-      { key: 'ai-assistant', label: 'AI assistant', icon: Sparkles },
-      { key: 'call-summary', label: 'AI call summary', icon: FileText },
-      { key: 'voice-notes', label: 'Voice notes', icon: Mic, comingSoon: true },
+      { key: 'ai-assistant', label: 'AI Assistant', icon: Sparkles },
+      { key: 'call-summary', label: 'AI Call Summary', icon: FileText },
+      { key: 'voice-notes', label: 'Voice Notes', icon: Mic, comingSoon: true },
     ],
   },
   {
@@ -36,31 +37,44 @@ const NAV = [
 ];
 
 export default function Sidebar({ current, onNavigate }) {
+  const { user, logout } = useAuth();
+
   return (
-    <aside className="w-64 shrink-0 bg-ink-900 text-white h-screen sticky top-0 flex flex-col">
-      <div className="px-6 py-6 flex items-center gap-2 border-b border-white/10">
-        <Stethoscope size={22} className="text-teal-500" />
-        <span className="font-display font-semibold text-lg tracking-tight">DentalFlow</span>
+    <aside className="w-64 shrink-0 bg-[#0E1726] text-white h-screen sticky top-0 flex flex-col shadow-xl z-20">
+      {/* Brand header */}
+      <div className="px-6 py-5 flex items-center justify-between border-b border-white/10">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-teal-500 text-ink-950 flex items-center justify-center font-bold">
+            <Stethoscope size={19} />
+          </div>
+          <div>
+            <span className="font-display font-bold text-lg tracking-tight block leading-tight">DentalFlow</span>
+            <span className="text-[10px] text-teal-400 font-medium tracking-wide">PRACTICE SUITE</span>
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      {/* Navigation Groups */}
+      <nav className="flex-1 overflow-y-auto px-3.5 py-4 space-y-6">
         {NAV.map((group) => (
           <div key={group.section}>
-            <p className="px-3 mb-2 text-xs text-white/40 font-medium">{group.section}</p>
-            <div className="space-y-0.5">
+            <p className="px-3 mb-2 text-[11px] text-white/40 uppercase font-bold tracking-wider">{group.section}</p>
+            <div className="space-y-1">
               {group.items.map(({ key, label, icon: Icon, comingSoon }) => {
                 const active = current === key;
                 return (
                   <button
                     key={key}
                     onClick={() => onNavigate(key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
-                      ${active ? 'bg-teal-600 text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'}`}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all
+                      ${active
+                        ? 'bg-teal-600 text-white shadow-md shadow-teal-600/30'
+                        : 'text-white/70 hover:bg-white/8 hover:text-white'}`}
                   >
-                    <Icon size={17} />
+                    <Icon size={18} className={active ? 'text-white' : 'text-white/60'} />
                     <span className="flex-1 text-left">{label}</span>
                     {comingSoon && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/50">Phase 3</span>
+                      <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/50">Coming Soon</span>
                     )}
                   </button>
                 );
@@ -70,12 +84,24 @@ export default function Sidebar({ current, onNavigate }) {
         ))}
       </nav>
 
-      <div className="px-4 py-4 border-t border-white/10 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-sm font-medium">SM</div>
-        <div className="leading-tight">
-          <p className="text-sm font-medium">Dr. Sarah Mitchell</p>
-          <p className="text-xs text-white/40">Owner admin</p>
+      {/* User Footer */}
+      <div className="px-4 py-4 border-t border-white/10 flex items-center justify-between bg-black/20">
+        <div className="flex items-center gap-2.5 overflow-hidden">
+          <div className="w-8 h-8 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+            {user?.display_name ? user.display_name.slice(0, 2).toUpperCase() : 'SM'}
+          </div>
+          <div className="leading-tight truncate">
+            <p className="text-xs font-bold text-white truncate">{user?.display_name || 'Dr. Sarah Mitchell'}</p>
+            <p className="text-[10px] text-teal-400 font-medium">Owner Admin</p>
+          </div>
         </div>
+        <button
+          onClick={logout}
+          title="Sign out"
+          className="text-white/40 hover:text-red-400 p-1.5 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+        >
+          <LogOut size={16} />
+        </button>
       </div>
     </aside>
   );
