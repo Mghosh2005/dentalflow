@@ -7,6 +7,7 @@ import fs from 'fs';
 import readline from 'readline';
 import { execFile, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from './db.js';
@@ -22,26 +23,26 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const isProduction = process.env.NODE_ENV === 'production';
 let JWT_SECRET = process.env.JWT_SECRET;
 
-if (isProduction) {
-  if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET.includes('change_in_production')) {
-    throw new Error(
-      'FATAL: A strong, persistent JWT_SECRET (at least 32 characters) must be configured in environment variables for production.'
-    );
-  }
-} else {
-  if (!JWT_SECRET) {
-    const devSecretFile = path.join(__dirname, '..', '.jwt_secret_dev');
-    try {
-      if (fs.existsSync(devSecretFile)) {
-        JWT_SECRET = fs.readFileSync(devSecretFile, 'utf8').trim();
-      } else {
-        JWT_SECRET = 'dentalflow_dev_secret_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        fs.writeFileSync(devSecretFile, JWT_SECRET, 'utf8');
-      }
-    } catch {
-      JWT_SECRET = 'dentalflow_dev_static_secret_development_only_12345';
+if (!JWT_SECRET) {
+  const secretFilename = isProduction ? '.jwt_secret_prod' : '.jwt_secret_dev';
+  const secretFile = path.join(process.env.DATA_DIR || path.join(__dirname, '..'), secretFilename);
+  try {
+    if (fs.existsSync(secretFile)) {
+      JWT_SECRET = fs.readFileSync(secretFile, 'utf8').trim();
+    } else {
+      JWT_SECRET = crypto.randomBytes(32).toString('hex'); // 64 cryptographically secure hex characters
+      fs.writeFileSync(secretFile, JWT_SECRET, 'utf8');
     }
+  } catch {
+    JWT_SECRET = crypto.randomBytes(32).toString('hex');
   }
+  if (isProduction) {
+    console.warn('[Security Warning] JWT_SECRET environment variable was not set. Generated a persistent 64-character secret. For multi-instance scaling, configure JWT_SECRET in your hosting environment variables.');
+  }
+} else if (isProduction && (JWT_SECRET.length < 32 || JWT_SECRET.includes('change_in_production'))) {
+  throw new Error(
+    'FATAL: When JWT_SECRET is provided in production, it must be at least 32 characters long and cannot use placeholder values.'
+  );
 }
 const JWT_EXPIRES = '24h';
 
