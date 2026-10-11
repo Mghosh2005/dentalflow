@@ -14,6 +14,8 @@ export default function Patients() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [formDirty, setFormDirty] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const load = () => api.getPatients().then((data) => {
     setPatients(data || []);
@@ -26,55 +28,91 @@ export default function Patients() {
 
   useEffect(() => { load(); }, []);
 
+  const openAddForm = () => {
+    setFormDirty(false);
+    setFormError('');
+    setShowAdd(true);
+  };
+
+  const closeAddForm = () => {
+    setShowAdd(false);
+    setFormDirty(false);
+    setFormError('');
+  };
+
+  const openEditForm = (patient) => {
+    setFormDirty(false);
+    setFormError('');
+    setEditing(patient);
+  };
+
+  const closeEditForm = () => {
+    setEditing(null);
+    setFormDirty(false);
+    setFormError('');
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const form = new FormData(e.target);
-    const firstName = form.get('first_name')?.trim();
-    const lastName = form.get('last_name')?.trim();
-    const fullName = [firstName, lastName].filter(Boolean).join(' ');
+    setFormError('');
+    try {
+      const form = new FormData(e.target);
+      const firstName = form.get('first_name')?.trim();
+      const lastName = form.get('last_name')?.trim();
+      const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
-    await api.createPatient({
-      name: fullName,
-      first_name: firstName,
-      last_name: lastName,
-      date_of_birth: form.get('date_of_birth'),
-      gender: form.get('gender'),
-      phone: form.get('phone'),
-      email: form.get('email'),
-      address: form.get('address'),
-      medical_notes: form.get('medical_notes'),
-      emergency_contact: form.get('emergency_contact'),
-    });
-    setSaving(false);
-    setShowAdd(false);
-    load();
+      await api.createPatient({
+        name: fullName,
+        first_name: firstName,
+        last_name: lastName,
+        date_of_birth: form.get('date_of_birth'),
+        gender: form.get('gender'),
+        phone: form.get('phone'),
+        email: form.get('email'),
+        address: form.get('address'),
+        medical_notes: form.get('medical_notes'),
+        emergency_contact: form.get('emergency_contact'),
+      });
+      closeAddForm();
+      load();
+    } catch (err) {
+      setFormError(err?.message || 'Failed to create patient. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleEdit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const form = new FormData(e.target);
-    const firstName = form.get('first_name')?.trim();
-    const lastName = form.get('last_name')?.trim();
-    const fullName = [firstName, lastName].filter(Boolean).join(' ');
+    setFormError('');
+    try {
+      const form = new FormData(e.target);
+      const firstName = form.get('first_name')?.trim();
+      const lastName = form.get('last_name')?.trim();
+      const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
-    await api.updatePatient(editing.id, {
-      name: fullName,
-      first_name: firstName,
-      last_name: lastName,
-      date_of_birth: form.get('date_of_birth'),
-      gender: form.get('gender'),
-      phone: form.get('phone'),
-      email: form.get('email'),
-      address: form.get('address'),
-      medical_notes: form.get('medical_notes'),
-      emergency_contact: form.get('emergency_contact'),
-      status: form.get('status'),
-    });
-    setSaving(false);
-    setEditing(null);
-    load();
+      await api.updatePatient(editing.id, {
+        name: fullName,
+        first_name: firstName,
+        last_name: lastName,
+        date_of_birth: form.get('date_of_birth'),
+        gender: form.get('gender'),
+        phone: form.get('phone'),
+        email: form.get('email'),
+        address: form.get('address'),
+        medical_notes: form.get('medical_notes'),
+        emergency_contact: form.get('emergency_contact'),
+        status: form.get('status'),
+      });
+      closeEditForm();
+      load();
+    } catch (err) {
+      setFormError(err?.message || 'Failed to update patient. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -108,7 +146,7 @@ export default function Patients() {
           </p>
         </div>
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={openAddForm}
           className="shrink-0 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95"
         >
           <Plus size={16} /> Add Patient
@@ -208,7 +246,7 @@ export default function Patients() {
                             <Eye size={15} />
                           </button>
                           <button
-                            onClick={() => setEditing(p)}
+                            onClick={() => openEditForm(p)}
                             title="Edit Patient"
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
                           >
@@ -318,7 +356,7 @@ export default function Patients() {
 
               {/* Edit button */}
               <button
-                onClick={() => setEditing(selectedPatient)}
+                onClick={() => openEditForm(selectedPatient)}
                 className="w-full mt-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all"
               >
                 <Pencil size={14} />
@@ -331,8 +369,14 @@ export default function Patients() {
 
       {/* ADD PATIENT MODAL — With all 9 fields per PDF */}
       {showAdd && (
-        <Modal title="Add New Patient" onClose={() => setShowAdd(false)}>
-          <form onSubmit={handleAdd} className="space-y-4">
+        <Modal title="Add New Patient" onClose={closeAddForm} isDirty={formDirty} confirmCloseIfDirty>
+          <form onSubmit={handleAdd} onChange={() => setFormDirty(true)} className="space-y-4">
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {formError}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <Field label="First Name">
                 <input name="first_name" required className={inputClass} placeholder="Christopher" />
@@ -391,8 +435,14 @@ export default function Patients() {
 
       {/* EDIT PATIENT MODAL — With all 9 fields per PDF */}
       {editing && (
-        <Modal title={`Edit Patient: ${editing.name}`} onClose={() => setEditing(null)}>
-          <form onSubmit={handleEdit} className="space-y-4">
+        <Modal title={`Edit Patient: ${editing.name}`} onClose={closeEditForm} isDirty={formDirty} confirmCloseIfDirty>
+          <form onSubmit={handleEdit} onChange={() => setFormDirty(true)} className="space-y-4">
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {formError}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <Field label="First Name">
                 <input

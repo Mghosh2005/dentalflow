@@ -29,6 +29,8 @@ export default function Appointments() {
   const [practitioners, setPractitioners] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
+  const [formError, setFormError] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -40,35 +42,53 @@ export default function Appointments() {
     api.getPractitioners().then((pr) => setPractitioners(pr || []));
   }, []);
 
+  const openAddForm = () => {
+    setFormDirty(false);
+    setFormError('');
+    setShowAdd(true);
+  };
+
+  const closeAddForm = () => {
+    setShowAdd(false);
+    setFormDirty(false);
+    setFormError('');
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
+    setFormError('');
     const form = new FormData(e.target);
     const feeVal = parseFloat(form.get('fee'));
     if (!Number.isFinite(feeVal) || feeVal < 0) {
-      alert('Please enter a valid fee (0 or greater).');
+      setFormError('Please enter a valid fee (0 or greater).');
       return;
     }
     setSaving(true);
-    const date = form.get('date');
-    const time = form.get('time');
-    const durationMins = parseInt(form.get('duration') || '30', 10);
-    const start = `${date}T${time}:00`;
+    try {
+      const date = form.get('date');
+      const time = form.get('time');
+      const durationMins = parseInt(form.get('duration') || '30', 10);
+      const start = `${date}T${time}:00`;
 
-    const startDate = new Date(start);
-    const endDate = new Date(startDate.getTime() + durationMins * 60000);
-    const end = endDate.toISOString().slice(0, 19);
+      const startDate = new Date(start);
+      const endDate = new Date(startDate.getTime() + durationMins * 60000);
+      const end = endDate.toISOString().slice(0, 19);
 
-    await api.createAppointment({
-      patient_id: Number(form.get('patient_id')),
-      practitioner_id: Number(form.get('practitioner_id')),
-      start_time: start,
-      end_time: end,
-      reason: form.get('reason'),
-      fee: feeVal,
-    });
-    setSaving(false);
-    setShowAdd(false);
-    load();
+      await api.createAppointment({
+        patient_id: Number(form.get('patient_id')),
+        practitioner_id: Number(form.get('practitioner_id')),
+        start_time: start,
+        end_time: end,
+        reason: form.get('reason'),
+        fee: feeVal,
+      });
+      closeAddForm();
+      load();
+    } catch (err) {
+      setFormError(err?.message || 'Failed to book appointment. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const changeStatus = async (id, status) => {
@@ -125,7 +145,7 @@ export default function Appointments() {
           </p>
         </div>
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={openAddForm}
           className="shrink-0 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95"
         >
           <Plus size={16} /> Book Appointment
@@ -289,8 +309,14 @@ export default function Appointments() {
 
       {/* Book Appointment Modal */}
       {showAdd && (
-        <Modal title="Book New Appointment" onClose={() => setShowAdd(false)}>
-          <form onSubmit={handleAdd} className="space-y-4">
+        <Modal title="Book New Appointment" onClose={closeAddForm} isDirty={formDirty} confirmCloseIfDirty>
+          <form onSubmit={handleAdd} onChange={() => setFormDirty(true)} className="space-y-4">
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {formError}
+              </div>
+            )}
+
             <Field label="Patient">
               <select name="patient_id" required className={inputClass}>
                 <option value="">Select a patient</option>
