@@ -57,9 +57,9 @@ export default function AiSettings() {
         <p className="text-ink-900/50 text-sm">Configure how Neerja handles incoming calls and test your live voice agent.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
         {/* Left Column: Settings Form */}
-        <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+        <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-sm">
 
         <form onSubmit={handleSave} className="space-y-6">
           
@@ -79,7 +79,7 @@ export default function AiSettings() {
 
           <div className="space-y-4 border-b border-black/5 pb-6">
             <h2 className="text-lg font-semibold text-ink-900">Voice & Language</h2>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Voice Selection">
                 <select 
                   name="voice_id" 
@@ -191,7 +191,7 @@ export default function AiSettings() {
 
       {/* Right Column: Interactive Voice Sandbox */}
       <div className="lg:col-span-5 space-y-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-sm">
           <div className="mb-4">
             <h2 className="text-base font-semibold text-ink-900 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

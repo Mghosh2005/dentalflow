@@ -51,7 +51,7 @@ export default function Alerts() {
       <h1 className="font-display text-3xl font-semibold text-ink-900 mb-1">Alerts</h1>
       <p className="text-ink-900/50 text-sm mb-4">Active alerts requiring your attention.</p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
         {[
           { id: 'all', label: 'All Alerts' },
           { id: 'escalations', label: 'AI Escalations' },
@@ -60,7 +60,7 @@ export default function Alerts() {
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${filter === f.id ? 'bg-ink-900 text-white' : 'bg-white border border-slate-200 text-ink-900/60 hover:bg-slate-50'}`}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${filter === f.id ? 'bg-ink-900 text-white' : 'bg-white border border-slate-200 text-ink-900/60 hover:bg-slate-50'}`}
           >
             {f.label}
           </button>
@@ -83,47 +83,49 @@ export default function Alerts() {
           }
 
           return (
-            <div key={a.id} className={`rounded-xl border px-5 py-4 flex items-start gap-4 ${severityStyles[a.severity] || severityStyles.medium}`}>
-              <Icon size={18} className={`mt-0.5 shrink-0 ${iconColor}`} />
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm font-semibold text-ink-900">{a.title}</p>
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full capitalize ${severityBadge[a.severity] || severityBadge.medium}`}>{a.severity}</span>
-                </div>
-                <p className="text-sm text-ink-900/60 mb-2">{a.message}</p>
-                
-                {isEscalation && callLog && (
-                  <div className="mt-2 pt-2 border-t border-black/5 flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs text-ink-900/70">
-                      <strong>{callLog.caller_name || 'Unknown'}</strong>
-                      {(callLog.caller_phone || callLog.caller_email) && (
-                        <span> · {callLog.caller_phone} {callLog.caller_email}</span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      {callLog.caller_phone && (
-                        <a 
-                          href={`tel:${callLog.caller_phone}`}
-                          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
-                        >
-                          <Phone size={13} /> Call Back
-                        </a>
-                      )}
-                      {callLog.transcript && (
-                        <button 
-                          onClick={() => setSelectedTranscript(callLog.transcript)}
-                          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-ink-900/70 hover:bg-slate-50"
-                        >
-                          <MessageSquare size={13} /> View Transcript
-                        </button>
-                      )}
-                    </div>
+            <div key={a.id} className={`rounded-2xl border p-4 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 ${severityStyles[a.severity] || severityStyles.medium}`}>
+              <div className="flex items-start gap-3 flex-1">
+                <Icon size={18} className={`mt-0.5 shrink-0 ${iconColor}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <p className="text-sm font-semibold text-ink-900">{a.title}</p>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full capitalize ${severityBadge[a.severity] || severityBadge.medium}`}>{a.severity}</span>
                   </div>
-                )}
+                  <p className="text-sm text-ink-900/60 mb-2">{a.message}</p>
+                  
+                  {isEscalation && callLog && (
+                    <div className="mt-2 pt-2 border-t border-black/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="text-xs text-ink-900/70">
+                        <strong>{callLog.caller_name || 'Unknown'}</strong>
+                        {(callLog.caller_phone || callLog.caller_email) && (
+                          <span> · {callLog.caller_phone} {callLog.caller_email}</span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {callLog.caller_phone && (
+                          <a 
+                            href={`tel:${callLog.caller_phone}`}
+                            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 min-h-[34px]"
+                          >
+                            <Phone size={13} /> Call Back
+                          </a>
+                        )}
+                        {callLog.transcript && (
+                          <button 
+                            onClick={() => setSelectedTranscript(callLog.transcript)}
+                            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-ink-900/70 hover:bg-slate-50 min-h-[34px]"
+                          >
+                            <MessageSquare size={13} /> View Transcript
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => dismiss(a.id)}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-black/10 text-ink-900/60 hover:bg-black/5 shrink-0"
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-black/10 text-ink-900/60 hover:bg-black/5 shrink-0 self-end sm:self-start min-h-[34px]"
               >
                 Dismiss
               </button>

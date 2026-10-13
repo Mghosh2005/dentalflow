@@ -1301,8 +1301,8 @@ export default function VoiceAgentSimulator({
               )}
 
               {/* Bottom Call Control Buttons */}
-              <div className="flex items-center justify-between pt-0.5">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                   {/* Mute Mic Toggle */}
                   <button
                     type="button"
@@ -1412,11 +1412,11 @@ export default function VoiceAgentSimulator({
           )
         ) : (
           /* Idle Mode — Two Options: Start Call or Start Chat */
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="text-xs text-slate-400">
               <span>Ready to start session</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto">
               <button
                 type="button"
                 onClick={startChat}

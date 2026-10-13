@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { 
   FileText, CheckCircle2, Clock, AlertTriangle, MessageSquare, 
@@ -70,7 +70,7 @@ export default function AiCallSummary({ onNavigate }) {
         {onNavigate && (
           <button
             onClick={() => onNavigate('ai-assistant')}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-sm transition-all self-start md:self-auto cursor-pointer"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-sm transition-all w-full sm:w-auto cursor-pointer"
           >
             <Bot size={15} />
             <span>Open AI Assistant Sandbox</span>
@@ -79,7 +79,7 @@ export default function AiCallSummary({ onNavigate }) {
       </div>
 
       {/* KPI Overview Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <p className="text-ink-900/50 text-xs font-medium uppercase tracking-wider">Total Calls Logged</p>
           <p className="text-2xl font-bold text-ink-900 mt-1">{callLogs.length}</p>
@@ -123,7 +123,7 @@ export default function AiCallSummary({ onNavigate }) {
             <button
               key={f.id}
               onClick={() => setFilterIntent(f.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer shrink-0 ${
                 filterIntent === f.id
                   ? 'bg-ink-900 text-white'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
@@ -154,13 +154,13 @@ export default function AiCallSummary({ onNavigate }) {
               className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:border-slate-300"
             >
               {/* Header Row */}
-              <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-start gap-4">
+              <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                <div className="flex items-start gap-3 sm:gap-4">
                   <div className="w-10 h-10 rounded-xl bg-ink-900 text-white flex items-center justify-center font-semibold text-sm shrink-0">
                     {log.caller_name ? log.caller_name.charAt(0) : 'P'}
                   </div>
                   <div>
-                    <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold text-base text-ink-900">
                         {log.caller_name || 'Unknown Caller'}
                       </h3>
@@ -190,12 +190,12 @@ export default function AiCallSummary({ onNavigate }) {
                 </div>
 
                 {/* Summary Metrics */}
-                <div className="flex items-center gap-4 text-xs">
-                  <div className="text-right">
+                <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 text-xs w-full sm:w-auto pt-2.5 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                  <div className="text-left sm:text-right">
                     <p className="text-ink-900/40 text-[10px] uppercase font-semibold">Duration</p>
                     <p className="font-mono font-semibold text-ink-900">{formatDuration(log.duration_seconds)}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right">
                     <p className="text-ink-900/40 text-[10px] uppercase font-semibold">Status</p>
                     <span
                       className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium ${
@@ -211,7 +211,7 @@ export default function AiCallSummary({ onNavigate }) {
                   </div>
                   <button
                     onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                    className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-ink-900/70 hover:text-ink-900 transition-colors cursor-pointer"
+                    className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-ink-900/70 hover:text-ink-900 transition-colors cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
                     title={isExpanded ? 'Collapse' : 'Expand full review'}
                   >
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}

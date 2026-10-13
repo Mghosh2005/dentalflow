@@ -12,15 +12,15 @@ export default function StatCard({ label, value, accent = 'neutral', icon: Icon,
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5">
+    <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
       <div className="flex items-start justify-between">
-        <div>
-          <p className={`font-display font-semibold text-3xl ${valueStyles[valueTone || 'default']}`}>{value}</p>
-          <p className="text-sm text-ink-900/45 mt-1">{label}</p>
+        <div className="min-w-0">
+          <p className={`font-display font-semibold text-2xl sm:text-3xl ${valueStyles[valueTone || 'default']} truncate`}>{value}</p>
+          <p className="text-xs sm:text-sm text-ink-900/45 mt-1 leading-tight">{label}</p>
         </div>
         {Icon && (
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${chipStyles[accent]}`}>
-            <Icon size={17} />
+          <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center shrink-0 ${chipStyles[accent]}`}>
+            <Icon size={16} className="sm:w-[17px] sm:h-[17px]" />
           </div>
         )}
       </div>

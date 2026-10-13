@@ -25,6 +25,7 @@ function AppContent() {
   const { user, isPatient, loading } = useAuth();
   const [page, setPage] = useState('dashboard');
   const [alertsMode, setAlertsMode] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navigate = (key) => {
     if (key === 'alerts') {
@@ -72,10 +73,18 @@ function AppContent() {
 
   return (
     <div className="flex min-h-screen bg-[#F8FAFC]">
-      <Sidebar current={alertsMode ? '' : page} onNavigate={navigate} />
+      <Sidebar
+        current={alertsMode ? '' : page}
+        onNavigate={navigate}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
+      />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header onNavigateAlerts={() => navigate('alerts')} />
-        <main className="flex-1 p-6 sm:p-8 overflow-y-auto">{content}</main>
+        <Header
+          onNavigateAlerts={() => navigate('alerts')}
+          onMobileMenuToggle={() => setMobileMenuOpen(true)}
+        />
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">{content}</main>
       </div>
     </div>
   );

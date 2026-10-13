@@ -81,7 +81,7 @@ export default function Inbox() {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="font-display text-3xl font-semibold text-ink-900 mb-1">Inbox</h1>
           <p className="text-ink-900/50 text-sm">Enquiries from calls and the web, in one place.</p>
@@ -89,23 +89,23 @@ export default function Inbox() {
         {activeTab === 'enquiries' && (
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg bg-ink-900 text-white hover:bg-ink-800 transition-colors"
+            className="flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg bg-ink-900 text-white hover:bg-ink-800 transition-colors w-full sm:w-auto"
           >
             <Plus size={15} /> Log enquiry
           </button>
         )}
       </div>
 
-      <div className="flex border-b border-slate-200 mb-6 space-x-6">
+      <div className="flex border-b border-slate-200 mb-6 space-x-6 overflow-x-auto pb-0.5">
         <button 
           onClick={() => setActiveTab('call_logs')}
-          className={`pb-3 text-sm font-medium ${activeTab === 'call_logs' ? 'text-ink-900 border-b-2 border-ink-900' : 'text-ink-900/40 hover:text-ink-900/70'}`}
+          className={`pb-3 text-sm font-medium shrink-0 ${activeTab === 'call_logs' ? 'text-ink-900 border-b-2 border-ink-900' : 'text-ink-900/40 hover:text-ink-900/70'}`}
         >
           AI Call Log
         </button>
         <button 
           onClick={() => setActiveTab('enquiries')}
-          className={`pb-3 text-sm font-medium ${activeTab === 'enquiries' ? 'text-ink-900 border-b-2 border-ink-900' : 'text-ink-900/40 hover:text-ink-900/70'}`}
+          className={`pb-3 text-sm font-medium shrink-0 ${activeTab === 'enquiries' ? 'text-ink-900 border-b-2 border-ink-900' : 'text-ink-900/40 hover:text-ink-900/70'}`}
         >
           Enquiries (Legacy)
         </button>
@@ -113,16 +113,16 @@ export default function Inbox() {
 
       {activeTab === 'call_logs' && (
         <>
-          <div className="flex gap-4 mb-6">
-            <div className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
+            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
               <p className="text-xs text-ink-900/50 mb-1">Total AI Calls</p>
               <p className="text-xl font-semibold text-ink-900">{totalAiCalls}</p>
             </div>
-            <div className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3">
+            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
               <p className="text-xs text-ink-900/50 mb-1">Won-Back Calls</p>
               <p className="text-xl font-semibold text-ink-900">{wonBackCalls}</p>
             </div>
-            <div className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3">
+            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
               <p className="text-xs text-ink-900/50 mb-1">Escalated Calls</p>
               <p className="text-xl font-semibold text-ink-900">{escalatedCalls}</p>
             </div>
@@ -139,7 +139,7 @@ export default function Inbox() {
               <button
                 key={f.id}
                 onClick={() => setFilter(f.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${filter === f.id ? 'bg-ink-900 text-white' : 'bg-white border border-slate-200 text-ink-900/60 hover:bg-slate-50'}`}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${filter === f.id ? 'bg-ink-900 text-white' : 'bg-white border border-slate-200 text-ink-900/60 hover:bg-slate-50'}`}
               >
                 {f.label}
               </button>
@@ -148,10 +148,10 @@ export default function Inbox() {
           
           <div className="bg-white rounded-xl border border-slate-200 divide-y divide-black/5">
             {filteredLogs.map(log => (
-              <div key={log.id} className="p-5">
-                <div className="flex items-start justify-between mb-3">
+              <div key={log.id} className="p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 mb-3">
                   <div>
-                    <div className="flex items-center gap-3 mb-1">
+                    <div className="flex items-center gap-3 mb-1 flex-wrap">
                       <span className="font-semibold text-ink-900">{log.caller_name || 'Unknown Caller'}</span>
                       {log.caller_name_spelled && (
                         <span className="text-[10px] bg-slate-100 text-slate-500 font-mono px-2 py-0.5 rounded tracking-widest uppercase">
@@ -159,12 +159,12 @@ export default function Inbox() {
                         </span>
                       )}
                     </div>
-                    <div className="text-sm text-ink-900/60 flex items-center gap-2">
+                    <div className="text-sm text-ink-900/60 flex items-center gap-2 flex-wrap">
                       {log.caller_phone} {log.caller_email && <span>· {log.caller_email}</span>}
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
                     <select
                       value={log.status}
                       onChange={(ev) => updateCallLogStatus(log.id, ev.target.value)}
@@ -224,13 +224,13 @@ export default function Inbox() {
       {activeTab === 'enquiries' && (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-black/5">
           {enquiries.map((e) => (
-            <div key={e.id} className="px-5 py-4">
-              <div className="flex items-center justify-between mb-1.5">
+            <div key={e.id} className="p-4 sm:px-5 sm:py-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
                 <p className="text-sm font-medium text-ink-900">{e.caller_name || 'Unknown caller'}</p>
                 <select
                   value={e.status}
                   onChange={(ev) => updateEnquiryStatus(e.id, ev.target.value)}
-                  className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize border-0 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${statusStyles[e.status]}`}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full capitalize border-0 focus:outline-none focus:ring-2 focus:ring-teal-500/30 self-start sm:self-auto ${statusStyles[e.status]}`}
                 >
                   <option value="open">Open</option>
                   <option value="resolved">Resolved</option>

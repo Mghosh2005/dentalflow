@@ -58,7 +58,7 @@ export default function Practitioners() {
         {/* “Add Practitioner” Button directly per PDF section 8 */}
         <button
           onClick={() => setShowAdd(true)}
-          className="shrink-0 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95"
+          className="shrink-0 flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95 w-full sm:w-auto"
         >
           <UserPlus size={16} />
           <span>Add Practitioner</span>
@@ -70,7 +70,7 @@ export default function Practitioners() {
         {list.map((p) => (
           <div
             key={p.id}
-            className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm hover:shadow-md hover:border-teal-300 transition-all flex flex-col justify-between"
+            className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-5 sm:p-6 shadow-sm hover:shadow-md hover:border-teal-300 transition-all flex flex-col justify-between"
           >
             <div>
               {/* Header Icon + Specialty Badge */}
@@ -109,7 +109,7 @@ export default function Practitioners() {
             </div>
 
             {/* Operating Schedule */}
-            <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-semibold bg-slate-50 -mx-6 -mb-6 p-4 rounded-b-3xl">
+            <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-semibold bg-slate-50 -mx-5 -mb-5 sm:-mx-6 sm:-mb-6 p-3.5 sm:p-4 rounded-b-2xl sm:rounded-b-3xl">
               <span className="flex items-center gap-1.5">
                 <Clock size={13} className="text-teal-600" /> Mon–Fri: 08:00 – 18:00
               </span>
@@ -163,7 +163,7 @@ export default function Practitioners() {
               </select>
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Phone">
                 <input
                   name="phone"

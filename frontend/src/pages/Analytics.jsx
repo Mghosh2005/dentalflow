@@ -94,41 +94,41 @@ export default function Analytics() {
       </div>
 
       {/* Top 3 KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Billed Revenue</span>
             <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <DollarSign size={20} />
             </div>
           </div>
-          <p className="font-display text-3xl sm:text-4xl font-extrabold text-emerald-700">
+          <p className="font-display text-2xl sm:text-3xl lg:text-4xl font-extrabold text-emerald-700">
             ${data.totalRevenue.toLocaleString()}
           </p>
           <p className="text-xs text-slate-500 mt-1">Generated from completed clinical appointments</p>
         </div>
 
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Registered Patients</span>
             <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center">
               <Users size={20} />
             </div>
           </div>
-          <p className="font-display text-3xl sm:text-4xl font-extrabold text-slate-800">
+          <p className="font-display text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-800">
             {data.totalPatients}
           </p>
           <p className="text-xs text-slate-500 mt-1">Active patients across all practice operatories</p>
         </div>
 
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Appointments</span>
             <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center">
               <CalendarCheck size={20} />
             </div>
           </div>
-          <p className="font-display text-3xl sm:text-4xl font-extrabold text-sky-700">
+          <p className="font-display text-2xl sm:text-3xl lg:text-4xl font-extrabold text-sky-700">
             {totalAppointmentsLogged}
           </p>
           <p className="text-xs text-slate-500 mt-1">Scheduled, completed, and logged in system</p>
@@ -138,7 +138,7 @@ export default function Analytics() {
       {/* Main Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Monthly Revenue Trend */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
               <h2 className="font-display font-bold text-base text-slate-900">Revenue Performance by Month</h2>
@@ -163,7 +163,7 @@ export default function Analytics() {
         </div>
 
         {/* Appointment Status Breakdown */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
               <h2 className="font-display font-bold text-base text-slate-900">Appointment Status Distribution</h2>
@@ -197,7 +197,7 @@ export default function Analytics() {
           </div>
 
           {/* Interactive Legend with distinct colors */}
-          <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-100">
             {data.statusBreakdown.map((s) => {
               const color = STATUS_COLORS[s.status] || '#CBD5E1';
               const label = STATUS_LABELS[s.status] || s.status;
@@ -217,7 +217,7 @@ export default function Analytics() {
       </div>
 
       {/* Practitioner Revenue Breakdown */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="font-display font-bold text-base text-slate-900">Revenue Performance by Practitioner</h2>
@@ -233,7 +233,7 @@ export default function Analytics() {
 
             return (
               <div key={p.name} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-900 text-sm">{p.name}</span>
                     <span className="text-slate-400">· {p.appointment_count} visits completed</span>

@@ -146,7 +146,7 @@ export default function Appointments() {
         </div>
         <button
           onClick={openAddForm}
-          className="shrink-0 flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95"
+          className="shrink-0 flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95 w-full sm:w-auto"
         >
           <Plus size={16} /> Book Appointment
         </button>
@@ -193,31 +193,31 @@ export default function Appointments() {
           return (
             <div
               key={a.id}
-              className="bg-white rounded-2xl border border-slate-200/90 hover:border-teal-300 p-5 shadow-xs hover:shadow-md transition-all group"
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-teal-300 p-4 sm:p-5 shadow-xs hover:shadow-md transition-all group"
             >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
                 {/* Left section: Time, Patient Name & Treatment */}
-                <div className="flex items-start sm:items-center gap-4">
+                <div className="flex items-start sm:items-center gap-3 sm:gap-4">
                   {/* Date badge */}
-                  <div className="w-16 h-16 rounded-2xl bg-teal-50 border border-teal-100 text-teal-800 flex flex-col items-center justify-center shrink-0">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-teal-50 border border-teal-100 text-teal-800 flex flex-col items-center justify-center shrink-0">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider">
                       {startDate.toLocaleDateString('en-US', { month: 'short' })}
                     </span>
-                    <span className="text-xl font-extrabold leading-none my-0.5">
+                    <span className="text-lg sm:text-xl font-extrabold leading-none my-0.5">
                       {startDate.toLocaleDateString('en-US', { day: 'numeric' })}
                     </span>
-                    <span className="text-[10px] text-teal-600 font-medium">
+                    <span className="text-[9px] sm:text-[10px] text-teal-600 font-medium">
                       {startDate.toLocaleDateString('en-US', { weekday: 'short' })}
                     </span>
                   </div>
 
                   {/* Main Details: Visual prominence on patient and doctor per PDF */}
-                  <div className="space-y-1">
+                  <div className="space-y-1 min-w-0">
                     {/* Patient Name - Prominent bold font */}
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight flex items-center gap-1.5 truncate">
                         <User size={16} className="text-teal-600 shrink-0" />
-                        {a.patient_name}
+                        <span className="truncate">{a.patient_name}</span>
                       </h3>
 
                       {/* Appointment / Treatment Type Badge */}
@@ -234,7 +234,7 @@ export default function Appointments() {
                     </div>
 
                     {/* Practitioner Name and Duration */}
-                    <div className="flex items-center gap-3 text-xs text-slate-600 flex-wrap pt-0.5">
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs text-slate-600 flex-wrap pt-0.5">
                       {/* Practitioner Name - Prominently highlighted */}
                       <span className="inline-flex items-center gap-1.5 font-bold text-teal-800 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg">
                         <Stethoscope size={13} className="text-teal-600" />
@@ -256,9 +256,9 @@ export default function Appointments() {
                 </div>
 
                 {/* Right section: Fee, Status Selector & Delete */}
-                <div className="flex items-center gap-3 self-end md:self-auto shrink-0">
+                <div className="flex items-center justify-between md:justify-end gap-2.5 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 shrink-0">
                   {/* Fee input */}
-                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
                     <span className="text-xs font-bold text-slate-400">$</span>
                     <input
                       type="number"
@@ -274,7 +274,7 @@ export default function Appointments() {
                   <select
                     value={a.status}
                     onChange={(e) => changeStatus(a.id, e.target.value)}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-xl capitalize focus:outline-none focus:ring-2 focus:ring-teal-500/30 transition-all cursor-pointer ${statusStyles[a.status]}`}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-xl capitalize focus:outline-none focus:ring-2 focus:ring-teal-500/30 transition-all cursor-pointer min-h-[36px] ${statusStyles[a.status]}`}
                   >
                     <option value="booked">Booked</option>
                     <option value="completed">Completed</option>
@@ -286,7 +286,7 @@ export default function Appointments() {
                   <button
                     onClick={() => remove(a.id)}
                     title="Delete appointment"
-                    className="p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    className="p-2 rounded-xl text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -347,7 +347,7 @@ export default function Appointments() {
               </select>
             </Field>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Date">
                 <input
                   name="date"

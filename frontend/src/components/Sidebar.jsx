@@ -1,6 +1,7 @@
+import { useEffect, useCallback } from 'react';
 import {
   LayoutGrid, Calendar, Users, Inbox, Send,
-  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings, LogOut
+  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings, LogOut, Menu, X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -36,11 +37,16 @@ const NAV = [
   },
 ];
 
-export default function Sidebar({ current, onNavigate }) {
+function SidebarContent({ current, onNavigate, onItemClick }) {
   const { user, logout } = useAuth();
 
+  const handleNav = (key) => {
+    onNavigate(key);
+    if (onItemClick) onItemClick();
+  };
+
   return (
-    <aside className="w-64 shrink-0 bg-[#0E1726] text-white h-screen sticky top-0 flex flex-col shadow-xl z-20">
+    <>
       {/* Brand header */}
       <div className="px-6 py-5 flex items-center justify-between border-b border-white/10">
         <div className="flex items-center gap-2.5">
@@ -65,8 +71,8 @@ export default function Sidebar({ current, onNavigate }) {
                 return (
                   <button
                     key={key}
-                    onClick={() => onNavigate(key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all
+                    onClick={() => handleNav(key)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all min-h-[44px]
                       ${active
                         ? 'bg-teal-600 text-white shadow-md shadow-teal-600/30'
                         : 'text-white/70 hover:bg-white/8 hover:text-white'}`}
@@ -98,11 +104,80 @@ export default function Sidebar({ current, onNavigate }) {
         <button
           onClick={logout}
           title="Sign out"
-          className="text-white/40 hover:text-red-400 p-1.5 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+          className="text-white/40 hover:text-red-400 p-1.5 rounded-lg hover:bg-white/5 transition-colors shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
         >
           <LogOut size={16} />
         </button>
       </div>
-    </aside>
+    </>
+  );
+}
+
+export default function Sidebar({ current, onNavigate, mobileOpen, onMobileClose }) {
+  // Lock body scroll when mobile drawer is open
+  useEffect(() => {
+    if (mobileOpen) {
+      const orig = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = orig; };
+    }
+  }, [mobileOpen]);
+
+  // Close on Escape
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Escape' && mobileOpen) {
+      onMobileClose();
+    }
+  }, [mobileOpen, onMobileClose]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
+  return (
+    <>
+      {/* Desktop sidebar — hidden on mobile */}
+      <aside className="hidden lg:flex w-64 shrink-0 bg-[#0E1726] text-white h-screen sticky top-0 flex-col shadow-xl z-20">
+        <SidebarContent current={current} onNavigate={onNavigate} />
+      </aside>
+
+      {/* Mobile drawer overlay */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 flex"
+          onClick={(e) => { if (e.target === e.currentTarget) onMobileClose(); }}
+        >
+          {/* Backdrop */}
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs animate-fadeIn" onClick={onMobileClose} />
+
+          {/* Drawer */}
+          <aside className="relative w-72 max-w-[85vw] bg-[#0E1726] text-white h-full flex flex-col shadow-2xl z-50 animate-slideInLeft">
+            {/* Close button */}
+            <button
+              onClick={onMobileClose}
+              className="absolute top-4 right-4 p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+              aria-label="Close navigation"
+            >
+              <X size={20} />
+            </button>
+            <SidebarContent current={current} onNavigate={onNavigate} onItemClick={onMobileClose} />
+          </aside>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Export the hamburger button for use in Header
+export function MobileMenuButton({ onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="lg:hidden p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+      aria-label="Open navigation menu"
+    >
+      <Menu size={20} />
+    </button>
   );
 }

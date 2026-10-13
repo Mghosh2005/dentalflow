@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
 import { Building2, ChevronDown, Check, LogOut, User, Bell } from 'lucide-react';
+import { MobileMenuButton } from './Sidebar';
 
-export default function Header({ onNavigateAlerts }) {
+export default function Header({ onNavigateAlerts, onMobileMenuToggle }) {
   const { user, logout, selectedPractice, setSelectedPractice } = useAuth();
   const [practices, setPractices] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -34,82 +35,100 @@ export default function Header({ onNavigateAlerts }) {
     setDropdownOpen(false);
   };
 
-  return (
-    <header className="bg-white border-b border-slate-200 px-8 py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-      {/* Left: Practice Dropdown Selector */}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="flex items-center gap-3 px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-100 hover:border-slate-300 transition-all text-left group"
-        >
-          <div className="w-8 h-8 rounded-lg bg-teal-600/10 text-teal-700 flex items-center justify-center shrink-0">
-            <Building2 size={18} />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-800 tracking-tight">
-                {selectedPractice?.name || 'DentalFlow – Downtown'}
-              </span>
-              <span className="text-[10px] font-semibold uppercase px-1.5 py-0.2 rounded bg-teal-100 text-teal-700">
-                Active Practice
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 truncate max-w-[200px]">
-              {selectedPractice?.address || '120 Main Street, Downtown'}
-            </p>
-          </div>
-          <ChevronDown size={15} className={`text-slate-400 group-hover:text-slate-600 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-        </button>
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e) => {
+      if (!e.target.closest('[data-practice-dropdown]')) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [dropdownOpen]);
 
-        {/* Dropdown Menu */}
-        {dropdownOpen && (
-          <div className="absolute left-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-scaleUp">
-            <div className="px-3.5 py-2 border-b border-slate-100">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Switch Practice Location
-              </p>
-            </div>
-            <div className="py-1">
-              {practices.map((p) => {
-                const isSelected = selectedPractice?.id === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => handleSelectPractice(p)}
-                    className={`w-full px-3.5 py-2.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors ${
-                      isSelected ? 'bg-teal-50/60 font-semibold' : ''
-                    }`}
-                  >
-                    <div>
-                      <p className={`text-xs ${isSelected ? 'text-teal-900 font-bold' : 'text-slate-800'}`}>
-                        {p.name}
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {p.address || 'DentalFlow Location'}
-                      </p>
-                    </div>
-                    {isSelected && <Check size={16} className="text-teal-600 shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="px-3.5 py-2 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
-              <p className="text-[10px] text-slate-500">
-                Data seamlessly loads for selected practice
-              </p>
-            </div>
-          </div>
+  return (
+    <header className="bg-white border-b border-slate-200 px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between sticky top-0 z-30 shadow-xs gap-2">
+      {/* Left: Hamburger (mobile) + Practice Dropdown Selector */}
+      <div className="flex items-center gap-2 min-w-0">
+        {onMobileMenuToggle && (
+          <MobileMenuButton onClick={onMobileMenuToggle} />
         )}
+
+        <div className="relative min-w-0" data-practice-dropdown>
+          <button
+            type="button"
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex items-center gap-2 sm:gap-3 px-2.5 sm:px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-100 hover:border-slate-300 transition-all text-left group min-w-0"
+          >
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-teal-600/10 text-teal-700 flex items-center justify-center shrink-0">
+              <Building2 size={16} className="sm:w-[18px] sm:h-[18px]" />
+            </div>
+            <div className="hidden sm:block min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-800 tracking-tight truncate">
+                  {selectedPractice?.name || 'DentalFlow – Downtown'}
+                </span>
+                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.2 rounded bg-teal-100 text-teal-700 shrink-0">
+                  Active Practice
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 truncate max-w-[200px]">
+                {selectedPractice?.address || '120 Main Street, Downtown'}
+              </p>
+            </div>
+            <ChevronDown size={15} className={`text-slate-400 group-hover:text-slate-600 transition-transform shrink-0 ${dropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Dropdown Menu */}
+          {dropdownOpen && (
+            <div className="absolute left-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-scaleUp">
+              <div className="px-3.5 py-2 border-b border-slate-100">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Switch Practice Location
+                </p>
+              </div>
+              <div className="py-1">
+                {practices.map((p) => {
+                  const isSelected = selectedPractice?.id === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectPractice(p)}
+                      className={`w-full px-3.5 py-2.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors ${
+                        isSelected ? 'bg-teal-50/60 font-semibold' : ''
+                      }`}
+                    >
+                      <div>
+                        <p className={`text-xs ${isSelected ? 'text-teal-900 font-bold' : 'text-slate-800'}`}>
+                          {p.name}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {p.address || 'DentalFlow Location'}
+                        </p>
+                      </div>
+                      {isSelected && <Check size={16} className="text-teal-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="px-3.5 py-2 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
+                <p className="text-[10px] text-slate-500">
+                  Data seamlessly loads for selected practice
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right: Alerts, User Profile & Logout */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {onNavigateAlerts && (
           <button
             onClick={onNavigateAlerts}
-            className="relative p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors"
+            className="relative p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="System Alerts"
           >
             <Bell size={18} />
@@ -121,11 +140,11 @@ export default function Header({ onNavigateAlerts }) {
           </button>
         )}
 
-        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
+        <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
           <div className="w-7 h-7 rounded-lg bg-teal-600 text-white font-bold text-xs flex items-center justify-center">
             {user?.display_name ? user.display_name.slice(0, 2).toUpperCase() : 'SM'}
           </div>
-          <div className="hidden sm:block text-left">
+          <div className="hidden md:block text-left">
             <p className="text-xs font-bold text-slate-800 leading-tight">
               {user?.display_name || 'Dr. Sarah Mitchell'}
             </p>
@@ -138,7 +157,7 @@ export default function Header({ onNavigateAlerts }) {
         <button
           onClick={logout}
           title="Sign out"
-          className="p-2 rounded-xl text-slate-500 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition-colors"
+          className="p-2 rounded-xl text-slate-500 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
         >
           <LogOut size={17} />
         </button>

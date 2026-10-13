@@ -122,12 +122,12 @@ export default function Dashboard({ onNavigate }) {
     : 0;
 
   return (
-    <div className="max-w-6xl space-y-6 animate-fadeIn pb-12">
+    <div className="max-w-6xl space-y-4 sm:space-y-6 animate-fadeIn pb-12">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="font-display text-3xl font-bold text-slate-900 tracking-tight">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
               Practice Dashboard
             </h1>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-800">
@@ -170,7 +170,7 @@ export default function Dashboard({ onNavigate }) {
       {/* Main KPI Stat Cards (With slightly brighter accents per PDF) */}
       {summary && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             <StatCard label="Today's Appointments" value={summary.todaysAppointments} icon={CalendarCheck} />
             <StatCard label="Active Patients" value={summary.activePatients} icon={HeartHandshake} />
             <StatCard
@@ -228,7 +228,7 @@ export default function Dashboard({ onNavigate }) {
                 AI Voice Receptionist Performance
               </h2>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
               <StatCard
                 label="Calls Handled (After Hours)"
                 value={summary.callsHandledAfterHours || 0}
@@ -275,7 +275,7 @@ export default function Dashboard({ onNavigate }) {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {/* Graph 1: Monthly Revenue Performance */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
@@ -382,7 +382,7 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* Daily Briefing and Suggested Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
           <h2 className="font-display font-bold text-lg text-slate-900 mb-1">Daily Briefing</h2>
           <p className="text-xs text-slate-500 mb-4">A quick read on clinic operations today.</p>

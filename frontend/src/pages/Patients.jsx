@@ -134,11 +134,11 @@ export default function Patients() {
   });
 
   return (
-    <div className="max-w-6xl space-y-6 animate-fadeIn pb-12">
+    <div className="max-w-6xl space-y-4 sm:space-y-6 animate-fadeIn pb-12">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="font-display text-3xl font-bold text-slate-900 tracking-tight">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
             Patients
           </h1>
           <p className="text-slate-500 text-sm mt-0.5">
@@ -168,19 +168,19 @@ export default function Patients() {
       </div>
 
       {/* Main Table + Profile View Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-start">
         {/* Table of Patients (takes 2 cols if patient selected, or 3 cols) */}
-        <div className={`${selectedPatient ? 'lg:col-span-2' : 'lg:col-span-3'} bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs`}>
-          <div className="overflow-x-auto">
+        <div className={`${selectedPatient ? 'lg:col-span-2' : 'lg:col-span-3'} bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-xs`}>
+          <div className="responsive-table-wrap">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-xs font-bold uppercase tracking-wider text-slate-400 bg-slate-50/70 border-b border-slate-200">
-                  <th className="px-5 py-3.5">Patient Name</th>
-                  <th className="px-5 py-3.5">Contact</th>
-                  <th className="px-5 py-3.5">DOB / Gender</th>
-                  <th className="px-5 py-3.5">Medical Alert</th>
-                  <th className="px-5 py-3.5">Status</th>
-                  <th className="px-5 py-3.5 text-right">Actions</th>
+                  <th className="px-3 sm:px-5 py-3 sm:py-3.5 whitespace-nowrap">Patient Name</th>
+                  <th className="px-3 sm:px-5 py-3 sm:py-3.5 whitespace-nowrap">Contact</th>
+                  <th className="px-3 sm:px-5 py-3 sm:py-3.5 whitespace-nowrap hidden md:table-cell">DOB / Gender</th>
+                  <th className="px-3 sm:px-5 py-3 sm:py-3.5 whitespace-nowrap hidden sm:table-cell">Medical Alert</th>
+                  <th className="px-3 sm:px-5 py-3 sm:py-3.5 whitespace-nowrap hidden sm:table-cell">Status</th>
+                  <th className="px-3 sm:px-5 py-3 sm:py-3.5 text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
@@ -196,9 +196,9 @@ export default function Patients() {
                         isSelected ? 'bg-teal-50/80 font-bold' : ''
                       }`}
                     >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold text-xs flex items-center justify-center shrink-0">
+                      <td className="px-3 sm:px-5 py-3 sm:py-4">
+                        <div className="flex items-center gap-2 sm:gap-2.5">
+                          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-teal-100 text-teal-800 font-bold text-xs flex items-center justify-center shrink-0">
                             {p.name.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
@@ -210,17 +210,17 @@ export default function Patients() {
                         </div>
                       </td>
 
-                      <td className="px-5 py-4 text-xs text-slate-600">
-                        <p className="flex items-center gap-1.5"><Phone size={12} className="text-slate-400" /> {p.phone || '—'}</p>
-                        <p className="flex items-center gap-1.5 text-slate-400 mt-0.5"><Mail size={12} /> {p.email || '—'}</p>
+                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-xs text-slate-600">
+                        <p className="flex items-center gap-1.5 truncate max-w-[150px] sm:max-w-none"><Phone size={12} className="text-slate-400 shrink-0" /> {p.phone || '—'}</p>
+                        <p className="flex items-center gap-1.5 text-slate-400 mt-0.5 truncate max-w-[150px] sm:max-w-none"><Mail size={12} className="shrink-0" /> {p.email || '—'}</p>
                       </td>
 
-                      <td className="px-5 py-4 text-xs text-slate-600">
+                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-xs text-slate-600 hidden md:table-cell">
                         <p>{p.date_of_birth || '—'}</p>
                         <p className="text-[11px] text-slate-400">{p.gender || '—'}</p>
                       </td>
 
-                      <td className="px-5 py-4">
+                      <td className="px-3 sm:px-5 py-3 sm:py-4 hidden sm:table-cell">
                         {hasAlert ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">
                             <AlertTriangle size={11} /> Alert
@@ -230,13 +230,13 @@ export default function Patients() {
                         )}
                       </td>
 
-                      <td className="px-5 py-4">
+                      <td className="px-3 sm:px-5 py-3 sm:py-4 hidden sm:table-cell">
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold capitalize bg-teal-100 text-teal-800">
                           {p.status || 'active'}
                         </span>
                       </td>
 
-                      <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 sm:px-5 py-3 sm:py-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => setSelectedPatient(p)}

@@ -197,18 +197,18 @@ export default function FollowUps() {
       )}
 
       {/* Navigation Mode Tabs */}
-      <div className="flex items-center justify-between gap-4 border-b border-slate-200 pb-2">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 pb-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
           <button
             onClick={() => setActiveTab('automated')}
-            className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeTab === 'automated'
                 ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/20'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Sparkles size={14} />
-            <span>Automated Follow-Up Queue</span>
+            <span>Automated Queue</span>
             {pendingCount > 0 && (
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
                 activeTab === 'automated' ? 'bg-white text-teal-800' : 'bg-rose-500 text-white'
@@ -220,30 +220,30 @@ export default function FollowUps() {
 
           <button
             onClick={() => setActiveTab('tasks')}
-            className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeTab === 'tasks'
                 ? 'bg-slate-900 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <MessageSquare size={14} />
-            <span>Manual Tasks & Recalls ({tasks.length})</span>
+            <span>Manual Tasks ({tasks.length})</span>
           </button>
         </div>
 
         {/* Status Filter for Automated Queue */}
         {activeTab === 'automated' && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
             {[
-              { id: 'pending_approval', label: `Pending Approval (${pendingCount})` },
+              { id: 'pending_approval', label: `Pending (${pendingCount})` },
               { id: 'failed', label: `Failed (${failedCount})` },
-              { id: 'sent', label: 'Sent / Delivered' },
-              { id: 'all', label: 'All Messages' },
+              { id: 'sent', label: 'Sent' },
+              { id: 'all', label: 'All' },
             ].map((f) => (
               <button
                 key={f.id}
                 onClick={() => setFilterStatus(f.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 ${
                   filterStatus === f.id
                     ? 'bg-slate-200 text-slate-900 font-bold'
                     : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
@@ -370,24 +370,24 @@ export default function FollowUps() {
                 )}
 
                 {/* Actions row: "Approve & Send" prominent button per PDF */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <p className="text-[11px] text-slate-400">
                     {config.description}
                   </p>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                     {isPending || msg.status === 'failed' ? (
                       <>
                         <button
                           onClick={() => handleCancelMessage(msg.id)}
-                          className="px-3 py-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-colors flex items-center gap-1"
+                          className="px-3 py-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-colors flex items-center justify-center gap-1 min-h-[40px]"
                         >
                           <X size={14} /> Dismiss
                         </button>
                         <button
                           onClick={() => handleApproveAndSend(msg.id)}
                           disabled={sendingId === msg.id}
-                          className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                          className="px-4 sm:px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 min-h-[40px]"
                         >
                           <Send size={14} />
                           <span>
@@ -428,7 +428,7 @@ export default function FollowUps() {
       {activeTab === 'tasks' && (
         <div className="bg-white rounded-3xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-xs">
           {tasks.map((f) => (
-            <div key={f.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/50 transition-colors">
+            <div key={f.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:px-6 sm:py-4 hover:bg-slate-50/50 transition-colors">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
