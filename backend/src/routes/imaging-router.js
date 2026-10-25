@@ -8,6 +8,7 @@ import PatientService from '../services/patient-service.js';
 import AiOrchestrator from '../services/ai-orchestrator.js';
 import ClinicianReviewService from '../services/clinician-review-service.js';
 import eventBus from '../events/event-bus.js';
+import { seedDefaultRadiographs } from '../seed-radiographs.js';
 
 const router = express.Router();
 const upload = multer({
@@ -461,6 +462,25 @@ router.post('/quarantine/:id/resolve', authMiddleware, staffOnly, (req, res) => 
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * 10. POST /api/v1/imaging/seed-samples
+ * Seeds default diagnostic radiographs & findings if queue is empty
+ */
+router.post('/seed-samples', authMiddleware, staffOnly, (req, res) => {
+  try {
+    const seeded = seedDefaultRadiographs(db);
+    const count = db.prepare('SELECT COUNT(*) as c FROM imaging_files').get().c;
+    res.json({
+      status: 'ok',
+      seeded,
+      total_files: count,
+      message: seeded ? 'Sample clinical radiographs bootstrapped successfully.' : 'Radiographs already present in database.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

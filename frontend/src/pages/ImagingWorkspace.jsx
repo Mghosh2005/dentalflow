@@ -3,7 +3,8 @@ import { api } from '../api/client';
 import {
   ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, Sliders, CheckCircle2,
   XCircle, AlertTriangle, ShieldCheck, ArrowRight, Activity, FileText,
-  Calendar, Stethoscope, RefreshCw, Layers, ChevronDown, Check, Sparkles, Filter
+  Calendar, Stethoscope, RefreshCw, Layers, ChevronDown, Check, Sparkles, Filter,
+  Upload, X, Plus
 } from 'lucide-react';
 
 const CLASS_COLORS = {
@@ -40,6 +41,74 @@ export default function ImagingWorkspace({ initialFileId = null, onNavigate = nu
   const [showPromoteModal, setShowPromoteModal] = useState(false);
   const [treatmentProcedure, setTreatmentProcedure] = useState('');
   const [treatmentNotes, setTreatmentNotes] = useState('');
+
+  // Upload Radiograph Modal State
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [patientsList, setPatientsList] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadSuccess, setUploadSuccess] = useState(null);
+  const [bootstrapping, setBootstrapping] = useState(false);
+
+  useEffect(() => {
+    if (showUploadModal && patientsList.length === 0) {
+      api.getPatients().then(data => setPatientsList(data || [])).catch(() => {});
+    }
+  }, [showUploadModal, patientsList.length]);
+
+  const handleBootstrapSamples = async () => {
+    try {
+      setBootstrapping(true);
+      await api.seedImagingSamples();
+      await loadQueue();
+    } catch (err) {
+      console.error('Failed to bootstrap demo studies:', err);
+    } finally {
+      setBootstrapping(false);
+    }
+  };
+
+  const handleUploadSubmit = async (e) => {
+    e.preventDefault();
+    setUploading(true);
+    setUploadError('');
+    setUploadSuccess(null);
+    try {
+      const form = e.target;
+      const fileInput = form.elements.file;
+      if (!fileInput.files || fileInput.files.length === 0) {
+        throw new Error('Please select an image file to upload.');
+      }
+
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('patient_id', form.elements.patient_id.value);
+      formData.append('modality', form.elements.modality.value);
+      formData.append('study_date', form.elements.study_date.value);
+      formData.append('study_description', form.elements.study_description.value || '');
+
+      const res = await api.uploadRadiograph(formData);
+      if (res.status === 'ingested') {
+        setUploadSuccess('Radiograph ingested and verified successfully!');
+        setTimeout(async () => {
+          setShowUploadModal(false);
+          setUploadSuccess(null);
+          await loadQueue(res.file?.id);
+        }, 800);
+      } else if (res.status === 'quarantined') {
+        setUploadSuccess('Upload quarantined for patient matching review.');
+        setTimeout(async () => {
+          setShowUploadModal(false);
+          setUploadSuccess(null);
+          await loadQueue();
+        }, 1000);
+      }
+    } catch (err) {
+      setUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const viewerContainerRef = useRef(null);
   const imageRef = useRef(null);
@@ -297,9 +366,17 @@ export default function ImagingWorkspace({ initialFileId = null, onNavigate = nu
           </div>
 
           <button
+            onClick={() => setShowUploadModal(true)}
+            className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <Upload size={14} />
+            <span>Upload Radiograph</span>
+          </button>
+
+          <button
             onClick={() => loadQueue(selectedFile?.file_id)}
             title="Refresh imaging queue"
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer"
           >
             <RefreshCw size={15} />
           </button>
@@ -505,10 +582,35 @@ export default function ImagingWorkspace({ initialFileId = null, onNavigate = nu
                 )}
               </div>
             ) : !selectedFile ? (
-              <div className="text-center p-8 text-slate-500">
-                <FileText size={36} className="mx-auto mb-2 opacity-40" />
-                <p className="text-sm font-semibold">No radiographic image selected.</p>
-                <p className="text-xs">Upload an X-ray from the patient profile to review.</p>
+              <div className="text-center p-8 max-w-sm mx-auto text-slate-400">
+                <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center mx-auto mb-3 text-teal-400">
+                  <Activity size={28} />
+                </div>
+                <h4 className="text-sm font-bold text-slate-200 mb-1">No Radiographic Image Selected</h4>
+                <p className="text-xs text-slate-400 mb-5">
+                  {queue.length === 0
+                    ? 'No radiographs have been uploaded yet. Upload a diagnostic X-ray or initialize demo clinical studies to review findings.'
+                    : 'Choose a radiograph from the queue dropdown above or upload a new patient study.'}
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="w-full sm:w-auto px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload size={14} />
+                    Upload Radiograph
+                  </button>
+                  {queue.length === 0 && (
+                    <button
+                      onClick={handleBootstrapSamples}
+                      disabled={bootstrapping}
+                      className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      {bootstrapping ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} className="text-teal-400" />}
+                      Load Demo Studies
+                    </button>
+                  )}
+                </div>
               </div>
             ) : null}
           </div>
@@ -559,8 +661,22 @@ export default function ImagingWorkspace({ initialFileId = null, onNavigate = nu
 
           {/* Scrollable Findings & Decision Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* AI Analysis Status / Dispatch Trigger */}
-            {!analysisData?.analysis ? (
+            {!selectedFile ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
+                <Stethoscope size={24} className="mx-auto text-slate-400" />
+                <h4 className="font-bold text-xs text-slate-800">No Patient Study Active</h4>
+                <p className="text-[11px] text-slate-500">
+                  Select a radiograph from the queue or upload an X-ray to perform AI analysis and record clinical attestation.
+                </p>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload size={14} />
+                  Upload Radiograph
+                </button>
+              </div>
+            ) : !analysisData?.analysis ? (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
                 <Sparkles size={24} className="mx-auto text-teal-600" />
                 <h4 className="font-bold text-xs text-slate-800">AI Condition Analysis Ready</h4>
@@ -570,7 +686,7 @@ export default function ImagingWorkspace({ initialFileId = null, onNavigate = nu
                 <button
                   onClick={handleTriggerAnalysis}
                   disabled={analyzing}
-                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5"
+                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {analyzing ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
                   {analyzing ? 'Processing Radiograph...' : 'Execute AI Detection'}
@@ -830,6 +946,133 @@ export default function ImagingWorkspace({ initialFileId = null, onNavigate = nu
                   className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold shadow-md shadow-teal-600/20"
                 >
                   Confirm & Commit Plan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Upload Radiograph Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-scaleUp">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center">
+                  <Upload size={16} />
+                </div>
+                <div>
+                  <h3 className="font-display text-sm font-bold">Upload Patient Radiograph</h3>
+                  <p className="text-[10px] text-slate-400">Clinical PACS Ingestion & Quarantine Router</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowUploadModal(false); setUploadError(''); setUploadSuccess(null); }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUploadSubmit} className="p-5 space-y-4 text-xs">
+              {uploadError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 flex items-center gap-2 font-medium">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
+              {uploadSuccess && (
+                <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-teal-800 flex items-center gap-2 font-medium">
+                  <CheckCircle2 size={15} className="shrink-0 text-teal-600" />
+                  <span>{uploadSuccess}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Select Patient *</label>
+                <select
+                  name="patient_id"
+                  required
+                  defaultValue={patientsList[0]?.id || '1'}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500/30 cursor-pointer"
+                >
+                  {patientsList.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.medical_record_number || `MRN-${p.id}`})
+                    </option>
+                  ))}
+                  {patientsList.length === 0 && <option value="1">Patient #1 (Default)</option>}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Study Modality *</label>
+                  <select
+                    name="modality"
+                    required
+                    defaultValue="DX"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500/30 cursor-pointer"
+                  >
+                    <option value="IO">IO — Intraoral Radiograph</option>
+                    <option value="DX">DX — Digital Radiography (Bitewing)</option>
+                    <option value="PAN">PAN — Panoramic Radiograph</option>
+                    <option value="CT">CT — Cone Beam Computed Tomography</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Study Date *</label>
+                  <input
+                    type="date"
+                    name="study_date"
+                    required
+                    defaultValue={new Date().toISOString().split('T')[0]}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Study Description</label>
+                <input
+                  type="text"
+                  name="study_description"
+                  placeholder="e.g. Annual Diagnostic Bitewings 16/19"
+                  defaultValue="Bilateral Diagnostic Bitewings"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Radiograph File * <span className="font-normal text-slate-500">(DICOM, PNG, JPEG)</span>
+                </label>
+                <input
+                  type="file"
+                  name="file"
+                  required
+                  accept=".png,.jpg,.jpeg,.dcm,.rvg,image/png,image/jpeg,application/dicom"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-teal-600 file:text-white file:font-bold file:text-xs hover:file:bg-teal-700 cursor-pointer"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => { setShowUploadModal(false); setUploadError(''); setUploadSuccess(null); }}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {uploading ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
+                  <span>{uploading ? 'Uploading...' : 'Upload & Process'}</span>
                 </button>
               </div>
             </form>

@@ -12,7 +12,9 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: ALLOW_DEMO_SEEDING
-        value: "false"
+        value: "true"
+      - key: DATABASE_PATH
+        value: /var/data/dentalflow.db
       - key: AI_WORKER_URL
         value: http://dentalflow-ai-worker:8000
       - key: AI_WORKER_SECRET

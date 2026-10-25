@@ -12,11 +12,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from './db.js';
 import { bootstrapDatabaseIfEmpty } from './seed.js';
+import { seedDefaultRadiographs } from './seed-radiographs.js';
 import imagingRouter from './routes/imaging-router.js';
 import patientV1Router from './routes/patient-v1-router.js';
 
 // Auto-bootstrap fresh database if empty
 bootstrapDatabaseIfEmpty(db);
+seedDefaultRadiographs(db);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

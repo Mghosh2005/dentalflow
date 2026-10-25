@@ -111,6 +111,7 @@ export const api = {
   promoteAnalysisToTreatment: (analysisId, data) => request(`/api/v1/imaging/analyses/${analysisId}/promote-treatment`, { method: 'POST', body: JSON.stringify(data) }),
   getQuarantinedRadiographs: () => request('/api/v1/imaging/quarantine'),
   resolveQuarantinedRadiograph: (quarantineId, data) => request(`/api/v1/imaging/quarantine/${quarantineId}/resolve`, { method: 'POST', body: JSON.stringify(data) }),
+  seedImagingSamples: () => request('/api/v1/imaging/seed-samples', { method: 'POST' }),
   
   // Multipart Radiograph Ingestion
   uploadRadiograph: async (formData) => {
