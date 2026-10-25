@@ -12,6 +12,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from './db.js';
 import { bootstrapDatabaseIfEmpty } from './seed.js';
+import imagingRouter from './routes/imaging-router.js';
+import patientV1Router from './routes/patient-v1-router.js';
 
 // Auto-bootstrap fresh database if empty
 bootstrapDatabaseIfEmpty(db);
@@ -218,15 +220,18 @@ app.post('/api/auth/register', optionalAuth, async (req, res) => {
       });
     }
 
-    // Patient registration: automatically create their own patient record
+    // Patient registration: automatically create their own patient record with canonical identity
     const fullName = [first_name, last_name].filter(Boolean).join(' ') || display_name || username;
     const registerPatientTx = db.transaction(() => {
+      const canonicalUuid = crypto.randomUUID();
       const pInfo = db.prepare(`
-        INSERT INTO patients (practice_id, name, first_name, last_name, phone, email, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'active')
-      `).run(PRACTICE_ID, fullName, first_name || null, last_name || null, phone || null, email || null);
+        INSERT INTO patients (practice_id, name, first_name, last_name, phone, email, status, canonical_uuid, matching_status)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 'verified')
+      `).run(PRACTICE_ID, fullName, first_name || null, last_name || null, phone || null, email || null, canonicalUuid);
 
       linkedPatientId = pInfo.lastInsertRowid;
+      const mrn = `MRN-${PRACTICE_ID}-${String(linkedPatientId).padStart(6, '0')}`;
+      db.prepare(`UPDATE patients SET medical_record_number = ? WHERE id = ?`).run(mrn, linkedPatientId);
 
       const accInfo = db.prepare(
         `INSERT INTO user_accounts (practice_id, username, password_hash, role, staff_user_id, patient_id, display_name)
@@ -1022,16 +1027,28 @@ app.get('/api/patients/:id', authMiddleware, staffOnly, (req, res) => {
 });
 
 app.post('/api/patients', authMiddleware, staffOnly, (req, res) => {
-  const { first_name, last_name, phone, email, date_of_birth, gender, address, medical_notes, emergency_contact } = req.body;
+  const { first_name, last_name, phone, email, date_of_birth, gender, address, medical_notes, emergency_contact, allergies, medical_alerts } = req.body;
   const name = [first_name, last_name].filter(Boolean).join(' ') || req.body.name;
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
-  const info = db.prepare(
-    `INSERT INTO patients (practice_id, name, first_name, last_name, phone, email, status, date_of_birth, gender, address, medical_notes, emergency_contact)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
-  ).run(PRACTICE_ID, name, first_name || null, last_name || null, phone || null, email || null,
-    date_of_birth || null, gender || null, address || null, medical_notes || null, emergency_contact || null);
-  res.status(201).json({ id: info.lastInsertRowid });
+  const canonicalUuid = crypto.randomUUID();
+  const allergiesJson = JSON.stringify(Array.isArray(allergies) ? allergies : (allergies ? [allergies] : []));
+  const alertsJson = JSON.stringify(Array.isArray(medical_alerts) ? medical_alerts : (medical_alerts ? [medical_alerts] : []));
+
+  const runTx = db.transaction(() => {
+    const info = db.prepare(
+      `INSERT INTO patients (practice_id, name, first_name, last_name, phone, email, status, date_of_birth, gender, address, medical_notes, emergency_contact, canonical_uuid, allergies_json, medical_alerts_json, matching_status)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, 'verified')`
+    ).run(PRACTICE_ID, name, first_name || null, last_name || null, phone || null, email || null,
+      date_of_birth || null, gender || null, address || null, medical_notes || null, emergency_contact || null, canonicalUuid, allergiesJson, alertsJson);
+
+    const mrn = `MRN-${PRACTICE_ID}-${String(info.lastInsertRowid).padStart(6, '0')}`;
+    db.prepare(`UPDATE patients SET medical_record_number = ? WHERE id = ?`).run(mrn, info.lastInsertRowid);
+    return { id: info.lastInsertRowid, canonical_uuid: canonicalUuid, medical_record_number: mrn };
+  });
+
+  const created = runTx();
+  res.status(201).json(created);
 });
 
 // --- Practitioners ---
@@ -2518,6 +2535,10 @@ app.get('/api/practices', authMiddleware, staffOnly, (req, res) => {
   const rows = db.prepare('SELECT * FROM practices ORDER BY id').all();
   res.json(rows);
 });
+
+// ===== MOUNT VERSIONED HEALTHCARE APIS (PHASE 2 - 7) =====
+app.use('/api/v1/imaging', imagingRouter);
+app.use('/api/v1/patients', patientV1Router);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

@@ -97,4 +97,41 @@ export const api = {
     request(`/api/patient/available-slots?practitioner_id=${practitionerId}&date=${date}&duration=${duration || 30}`),
   bookPatientAppointment: (data) => request('/api/patient/appointments', { method: 'POST', body: JSON.stringify(data) }),
   getPatientTreatmentPlans: () => request('/api/patient/treatment-plans'),
+
+  // ===== PHASE 2-7 UNIFIED HEALTHCARE & IMAGING APIS =====
+  getPatientTimeline: (patientId) => request(`/api/v1/patients/${patientId}/timeline`),
+  getPatientImagingStudies: (patientId) => request(`/api/v1/patients/${patientId}/imaging-studies`),
+  createClinicalNote: (patientId, data) => request(`/api/v1/patients/${patientId}/clinical-notes`, { method: 'POST', body: JSON.stringify(data) }),
+  
+  // Imaging & AI Diagnosis Workspace
+  getImagingQueue: () => request('/api/v1/imaging/queue'),
+  getAnalysisDetails: (analysisId) => request(`/api/v1/imaging/analyses/${analysisId}`),
+  triggerAnalysisJob: (fileId) => request(`/api/v1/imaging/files/${fileId}/analyze`, { method: 'POST' }),
+  submitAnalysisReview: (analysisId, data) => request(`/api/v1/imaging/analyses/${analysisId}/review`, { method: 'POST', body: JSON.stringify(data) }),
+  promoteAnalysisToTreatment: (analysisId, data) => request(`/api/v1/imaging/analyses/${analysisId}/promote-treatment`, { method: 'POST', body: JSON.stringify(data) }),
+  getQuarantinedRadiographs: () => request('/api/v1/imaging/quarantine'),
+  resolveQuarantinedRadiograph: (quarantineId, data) => request(`/api/v1/imaging/quarantine/${quarantineId}/resolve`, { method: 'POST', body: JSON.stringify(data) }),
+  
+  // Multipart Radiograph Ingestion
+  uploadRadiograph: async (formData) => {
+    const token = getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${BASE_URL}/api/v1/imaging/upload`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Upload failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  getImagingFileUrl: (fileId) => {
+    const token = getToken();
+    return `${BASE_URL}/api/v1/imaging/files/${fileId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  }
 };
+

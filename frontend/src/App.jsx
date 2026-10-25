@@ -16,6 +16,7 @@ import ComingSoon from './pages/ComingSoon';
 import AiSettings from './pages/AiSettings';
 import AiCallSummary from './pages/AiCallSummary';
 import AiAssistant from './pages/AiAssistant';
+import ImagingWorkspace from './pages/ImagingWorkspace';
 
 const TITLES = {
   'voice-notes': 'Voice notes',
@@ -24,15 +25,19 @@ const TITLES = {
 function AppContent() {
   const { user, isPatient, loading } = useAuth();
   const [page, setPage] = useState('dashboard');
+  const [selectedFileId, setSelectedFileId] = useState(null);
   const [alertsMode, setAlertsMode] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navigate = (key) => {
+  const navigate = (key, params = null) => {
     if (key === 'alerts') {
       setAlertsMode(true);
       return;
     }
     setAlertsMode(false);
+    if (params?.fileId) {
+      setSelectedFileId(params.fileId);
+    }
     setPage(key);
   };
 
@@ -60,8 +65,9 @@ function AppContent() {
   let content;
   if (alertsMode) content = <Alerts />;
   else if (page === 'dashboard') content = <Dashboard onNavigate={navigate} />;
+  else if (page === 'imaging') content = <ImagingWorkspace initialFileId={selectedFileId} onNavigate={navigate} />;
   else if (page === 'appointments') content = <Appointments />;
-  else if (page === 'patients') content = <Patients />;
+  else if (page === 'patients') content = <Patients onNavigate={navigate} />;
   else if (page === 'inbox') content = <Inbox />;
   else if (page === 'followups') content = <FollowUps />;
   else if (page === 'practitioners') content = <Practitioners />;

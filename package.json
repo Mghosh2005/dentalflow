@@ -9,6 +9,8 @@
     "start": "cd backend && node src/server.js",
     "dev:backend": "cd backend && node src/server.js",
     "dev:frontend": "cd frontend && npm run dev",
-    "render:build": "npm run install:all && npm run build && (pip install -r backend/requirements.txt || pip3 install -r backend/requirements.txt || true)"
+    "start:ai-worker": "cd ai-worker && uvicorn main:app --host 127.0.0.1 --port 8000",
+    "check:env": "node scripts/check_env.mjs",
+    "render:build": "npm run install:all && npm run build && (pip install -r backend/requirements.txt -r ai-worker/requirements.txt || pip3 install -r backend/requirements.txt -r ai-worker/requirements.txt || true)"
   }
 }

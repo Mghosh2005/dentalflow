@@ -274,4 +274,232 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_follow_up_messages_trigger ON foll
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_appointments_start ON appointments(start_time)`); } catch(e) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)`); } catch(e) {}
 
+// ===== PHASE 2: CANONICAL PATIENT INTELLIGENCE & IMAGING WORKFLOW EXTENSIONS =====
+
+// 1. Patient identity and clinical metadata extensions
+try { db.exec(`ALTER TABLE patients ADD COLUMN canonical_uuid TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN medical_record_number TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN allergies_json TEXT DEFAULT '[]'`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN medical_alerts_json TEXT DEFAULT '[]'`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN matching_status TEXT DEFAULT 'verified'`); } catch(e) {}
+try { db.exec(`ALTER TABLE patients ADD COLUMN merged_into_patient_id INTEGER REFERENCES patients(id)`); } catch(e) {}
+
+// 2. Clinician-entered consultation and encounter notes
+db.exec(`
+CREATE TABLE IF NOT EXISTS clinical_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  practitioner_id INTEGER REFERENCES practitioners(id),
+  appointment_id INTEGER REFERENCES appointments(id),
+  note_type TEXT DEFAULT 'general_encounter',
+  content TEXT NOT NULL,
+  signed_by_practitioner_id INTEGER REFERENCES practitioners(id),
+  signed_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// 3. Imaging studies and radiography files
+db.exec(`
+CREATE TABLE IF NOT EXISTS imaging_studies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  appointment_id INTEGER REFERENCES appointments(id),
+  study_instance_uid TEXT,
+  study_date TEXT NOT NULL,
+  modality TEXT NOT NULL, -- IO (Intraoral), PX (Panoramic), DX
+  study_description TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS imaging_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  study_id INTEGER NOT NULL REFERENCES imaging_studies(id),
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  file_storage_key TEXT NOT NULL,
+  original_filename TEXT NOT NULL,
+  file_format TEXT NOT NULL, -- dicom, png, jpeg
+  file_size_bytes INTEGER NOT NULL,
+  sha256_hash TEXT NOT NULL,
+  pixel_width INTEGER,
+  pixel_height INTEGER,
+  dicom_metadata_json TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// 4. AI inference executions and candidate findings
+db.exec(`
+CREATE TABLE IF NOT EXISTS ai_analyses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  imaging_file_id INTEGER NOT NULL REFERENCES imaging_files(id),
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  model_identifier TEXT NOT NULL, -- adr/6
+  model_version TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued', -- queued, processing, completed, failed
+  raw_inference_json TEXT,
+  error_message TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ai_findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  analysis_id INTEGER NOT NULL REFERENCES ai_analyses(id),
+  condition_label TEXT NOT NULL, -- cavity, periapical_lesion
+  confidence_score REAL NOT NULL,
+  bbox_x REAL NOT NULL,
+  bbox_y REAL NOT NULL,
+  bbox_width REAL NOT NULL,
+  bbox_height REAL NOT NULL,
+  tooth_number_fdi TEXT,
+  initial_status TEXT DEFAULT 'potential'
+);
+`);
+
+// 5. Clinician attestation and itemized decisions
+db.exec(`
+CREATE TABLE IF NOT EXISTS clinician_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  analysis_id INTEGER NOT NULL REFERENCES ai_analyses(id),
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  reviewer_user_id INTEGER NOT NULL REFERENCES user_accounts(id),
+  review_status TEXT NOT NULL, -- accepted_as_is, accepted_with_edits, rejected_false_positive
+  clinical_notes TEXT,
+  reviewed_at TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS clinician_finding_decisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  review_id INTEGER NOT NULL REFERENCES clinician_reviews(id),
+  finding_id INTEGER NOT NULL REFERENCES ai_findings(id),
+  decision TEXT NOT NULL, -- confirmed, rejected, adjusted
+  confirmed_condition TEXT,
+  treatment_recommended TEXT
+);
+`);
+
+// 6. HIPAA / GDPR audit logging
+db.exec(`
+CREATE TABLE IF NOT EXISTS audit_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  practice_id INTEGER REFERENCES practices(id),
+  user_account_id INTEGER REFERENCES user_accounts(id),
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  payload_json TEXT,
+  ip_address TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// 7. Safe patient matching quarantine queue
+db.exec(`
+CREATE TABLE IF NOT EXISTS quarantine_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  file_storage_key TEXT NOT NULL,
+  original_filename TEXT NOT NULL,
+  file_format TEXT NOT NULL,
+  file_size_bytes INTEGER NOT NULL,
+  sha256_hash TEXT NOT NULL,
+  candidate_patient_id INTEGER REFERENCES patients(id),
+  extracted_metadata_json TEXT,
+  quarantine_reason TEXT NOT NULL,
+  status TEXT DEFAULT 'pending_review', -- pending_review, resolved_linked, rejected
+  resolved_by_user_id INTEGER REFERENCES user_accounts(id),
+  resolved_patient_id INTEGER REFERENCES patients(id),
+  resolved_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+`);
+
+// Safe unique constraints and indexes for new architecture
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_uuid ON patients(canonical_uuid)`); } catch(e) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_mrn ON patients(practice_id, medical_record_number)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_clinical_notes_patient ON clinical_notes(patient_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_imaging_studies_patient ON imaging_studies(patient_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_imaging_files_study ON imaging_files(study_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ai_analyses_file ON ai_analyses(imaging_file_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ai_findings_analysis ON ai_findings(analysis_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_clinician_reviews_analysis ON clinician_reviews(analysis_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_events_practice ON audit_events(practice_id)`); } catch(e) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_quarantine_practice ON quarantine_records(practice_id)`); } catch(e) {}
+
+// Deterministic Backfill for Existing Patients
+import('crypto').then(({ randomUUID }) => {
+  try {
+    const unmigrated = db.prepare(`
+      SELECT id, practice_id, name, medical_notes, canonical_uuid, medical_record_number, allergies_json, medical_alerts_json
+      FROM patients
+      WHERE canonical_uuid IS NULL OR medical_record_number IS NULL
+    `).all();
+
+    if (unmigrated.length > 0) {
+      const updateStmt = db.prepare(`
+        UPDATE patients
+        SET canonical_uuid = ?,
+            medical_record_number = ?,
+            allergies_json = ?,
+            medical_alerts_json = ?,
+            matching_status = COALESCE(matching_status, 'verified')
+        WHERE id = ?
+      `);
+
+      const runTx = db.transaction(() => {
+        for (const pat of unmigrated) {
+          const canonicalUuid = pat.canonical_uuid || randomUUID();
+          const practiceId = pat.practice_id || 1;
+          const mrn = pat.medical_record_number || `MRN-${practiceId}-${String(pat.id).padStart(6, '0')}`;
+
+          let allergies = [];
+          try {
+            if (pat.allergies_json) allergies = JSON.parse(pat.allergies_json);
+          } catch(e) {}
+          if (allergies.length === 0 && pat.medical_notes) {
+            if (/penicillin/i.test(pat.medical_notes)) allergies.push('Penicillin');
+            if (/latex/i.test(pat.medical_notes)) allergies.push('Latex');
+            if (/sulfa/i.test(pat.medical_notes)) allergies.push('Sulfa');
+            if (/aspirin/i.test(pat.medical_notes)) allergies.push('Aspirin');
+          }
+
+          let alerts = [];
+          try {
+            if (pat.medical_alerts_json) alerts = JSON.parse(pat.medical_alerts_json);
+          } catch(e) {}
+          if (alerts.length === 0 && pat.medical_notes) {
+            if (/hypertension/i.test(pat.medical_notes)) alerts.push('Hypertension');
+            if (/diabetes/i.test(pat.medical_notes)) alerts.push('Diabetes');
+            if (/anticoagulant|blood thinner/i.test(pat.medical_notes)) alerts.push('Blood Thinners / Anticoagulant');
+          }
+
+          updateStmt.run(
+            canonicalUuid,
+            mrn,
+            JSON.stringify(allergies),
+            JSON.stringify(alerts),
+            pat.id
+          );
+        }
+      });
+      runTx();
+    }
+  } catch(err) {
+    console.error('Error during patient backfill migration:', err);
+  }
+}).catch(() => {});
+
 export default db;

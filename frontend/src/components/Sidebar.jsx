@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import {
   LayoutGrid, Calendar, Users, Inbox, Send,
-  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings, LogOut, Menu, X
+  FileText, Mic, Sparkles, GraduationCap, LineChart, Stethoscope, Settings, LogOut, Menu, X, Scan
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,6 +9,12 @@ const NAV = [
   {
     section: 'Overview',
     items: [{ key: 'dashboard', label: 'Dashboard', icon: LayoutGrid }],
+  },
+  {
+    section: 'Clinical Intelligence',
+    items: [
+      { key: 'imaging', label: 'Imaging Workspace', icon: Scan },
+    ],
   },
   {
     section: 'Operations',

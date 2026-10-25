@@ -1,8 +1,9 @@
 services:
+  # 1. Primary Unified Web Application (Express + Vite React Frontend)
   - type: web
     runtime: node
     name: dentalflow
-    plan: free
+    plan: standard
     buildCommand: npm run render:build
     startCommand: npm run start
     envVars:
@@ -11,4 +12,36 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: ALLOW_DEMO_SEEDING
-        value: "true"
+        value: "false"
+      - key: AI_WORKER_URL
+        value: http://dentalflow-ai-worker:8000
+      - key: AI_WORKER_SECRET
+        generateValue: true
+      - key: ROBOFLOW_API_KEY
+        sync: false
+      - key: ROBOFLOW_MODEL
+        value: adr/6
+      - key: STORAGE_PATH
+        value: /var/data/uploads
+    disk:
+      name: dentalflow-storage
+      mountPath: /var/data
+      sizeGB: 10
+
+  # 2. Private Decoupled AI Worker (FastAPI Python 3.11 Inference Engine)
+  - type: pserv
+    runtime: python
+    name: dentalflow-ai-worker
+    plan: standard
+    buildCommand: cd ai-worker && pip install -r requirements.txt
+    startCommand: cd ai-worker && uvicorn main:app --host 0.0.0.0 --port 8000
+    envVars:
+      - key: AI_WORKER_SECRET
+        fromService:
+          type: web
+          name: dentalflow
+          envVarKey: AI_WORKER_SECRET
+      - key: ROBOFLOW_API_KEY
+        sync: false
+      - key: ROBOFLOW_MODEL
+        value: adr/6

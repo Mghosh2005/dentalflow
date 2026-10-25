@@ -1,0 +1,136 @@
+=== PAGE 1 ===
+DentalFlow — Edits & Suggestions 
+1. Login Screen & User Types 
+We need a simple login screen with two types of logins: 
+1. Owner / Staff Login 
+This login should provide access to all the features and functionality available in DentalFlow. 
+2. Patient Login 
+The patient login should have a much simpler interface, focused only on patient 
+convenience. 
+The patient portal should have three sections only: 
+A. My Portal 
+A simple dashboard with: 
+●​ A welcome message 
+●​ Next appointment 
+●​ Total number of appointments 
+●​ Total completed visits 
+The dashboard should also display the complete details of the patient's next appointment: 
+●​ Date and time 
+●​ Practitioner 
+●​ Reason/type of appointment 
+B. My Appointments 
+This section should allow patients to book appointments through a simple 4-step process: 
+Step 1 — Choose Appointment Type​
+Examples: Hygiene & Cleaning, Check-up, Teeth Whitening, etc. 
+Step 2 — Choose Practitioner​
+Display the available practitioners so the patient can select who they would like to book with. 
+Step 3 — Choose Date & Time​
+The patient selects their preferred available date and time. 
+
+
+=== PAGE 2 ===
+Step 4 — Review & Confirm​
+Display all appointment details for the patient to review before confirming the booking. 
+C. My Treatment Plan 
+This section should display the patient's current treatment information and treatment plan. 
+The patient portal should contain only these three sections: My Portal, My 
+Appointments, and My Treatment Plan. 
+ 
+2. Dashboard 
+The dashboard should feel a little more visually engaging while still maintaining a 
+professional look. 
+●​ Use slightly brighter colours to highlight important information, similar to the demo 
+website. 
+●​ Add the analytics graphs to the main dashboard. 
+●​ Use better, slightly brighter colours for graphs and pie charts so the data is easier to 
+distinguish. 
+●​ Improve the graph-loading animation when the dashboard reloads so that it feels 
+smoother and more polished. 
+●​ When hovering over a graph or chart, clearly indicate what each colour represents. 
+●​ The transition between different sections/colours of the graphs should feel smooth 
+when moving the cursor. 
+Practice Dropdown 
+The demo website has a dropdown that allows the owner to select a practice and view its 
+data. 
+Please add the same functionality to the deployed version. 
+For now, there is no need to create different data for each practice. The same sample 
+data can be displayed regardless of which practice is selected. 
+ 
+3. Appointments 
+The appointment entries should display more relevant information, including: 
+●​ Patient name 
+●​ Practitioner name 
+●​ Appointment/treatment type — e.g. Check-up, Teeth Whitening, Extraction, etc. 
+●​ Appointment date and time 
+
+
+=== PAGE 3 ===
+●​ Appointment duration 
+The overall layout should also be made simpler and easier to scan, similar to the demo 
+website. 
+In the deployed version, the practitioner and patient names currently appear in a smaller and 
+lighter font. These should have better visual prominence so they are easier to identify at a 
+glance. 
+ 
+4. Patients 
+The information currently displayed in the Patients section is relevant and sufficient. 
+However, the Edit Patient functionality needs to include more information. 
+The following fields should be available when adding or editing a patient: 
+●​ First Name 
+●​ Last Name 
+●​ Date of Birth 
+●​ Gender 
+●​ Phone 
+●​ Email 
+●​ Address 
+●​ Medical Notes — allergies, medical conditions, or other relevant patient information 
+●​ Emergency Contact Number 
+These details should also be displayed appropriately in the main Patients table/profile 
+view, rather than only being available when editing the patient. 
+ 
+5. Inbox 
+No changes required. 
+The Inbox section is actually better in the deployed version, so we can keep it as it is. 
+ 
+6. Follow-Ups 
+The Follow-Ups section should have predefined messages for different follow-up 
+situations. 
+For example: 
+
+
+=== PAGE 4 ===
+●​ Appointment reminder — 30 minutes before the appointment 
+●​ No-show follow-up 
+●​ Cancelled appointment follow-up 
+●​ Missed-call follow-up 
+When a particular condition occurs, DentalFlow should automatically identify the relevant 
+situation and prepare the appropriate follow-up message. 
+The message should then appear ready to send, with an: 
+“Approve & Send” button 
+Clicking this button should directly send the prepared follow-up message. 
+The idea is that the team shouldn't have to write these messages manually each time. 
+DentalFlow should prepare the appropriate message based on the situation, while keeping 
+the final approval with the staff member. 
+ 
+7. AI Call Summary 
+No changes required. 
+The AI Call Summary section is actually better in the deployed version, so no edits are 
+needed here. 
+ 
+8. Practitioners 
+Add an: 
+“Add Practitioner” button 
+This should allow the practice owner/staff to add a new practitioner to the system. 
+ 
+9. Analytics 
+The Analytics section should be made more visually engaging and easier to interpret. 
+●​ Use better, slightly brighter colours. 
+●​ Make the charts and graphs stand out more clearly. 
+●​ Ensure the data is easy to understand at a quick glance. 
+●​ Keep the overall design consistent with the improved Dashboard visual style. 
+
+
+=== PAGE 5 ===
+ 
+
+
